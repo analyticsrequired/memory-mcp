@@ -12,7 +12,7 @@ import {
   Entity,
   skippedEntityNames,
   skippedEntitiesNotice,
-} from "../index.js";
+} from "../src/index.js";
 
 describe("create reporting", () => {
   let manager: KnowledgeGraphManager;

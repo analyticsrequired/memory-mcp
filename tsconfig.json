@@ -10,7 +10,10 @@
     "resolveJsonModule": true,
     "outDir": "./dist",
     "rootDir": ".",
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "@src/*": ["./src/*"]
+    }
   },
   "include": ["./**/*.ts"],
   "exclude": [

@@ -16,7 +16,7 @@ import {
   defaultMemoryPath,
   expandHome,
   memoryFileLocationWarning,
-} from "../index.js";
+} from "../src/index.js";
 
 describe("ensureMemoryFilePath", () => {
   let originalEnv: string | undefined;

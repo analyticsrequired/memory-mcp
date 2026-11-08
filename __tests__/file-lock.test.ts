@@ -6,7 +6,7 @@ import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
 import { spawnSync } from "child_process";
-import { KnowledgeGraphManager, withFileLock } from "../index.js";
+import { KnowledgeGraphManager, withFileLock } from "../src/index.js";
 import { makeTempGraph } from "./helpers.js";
 
 const fast = { staleMs: 60_000, timeoutMs: 100, retryMs: 5 };
