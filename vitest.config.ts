@@ -3,8 +3,14 @@
 // cannot run in the test process carries a `v8 ignore` with its reason
 // instead of a lower threshold.
 import { defineConfig } from "vitest/config";
+import path from "path";
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+    },
+  },
   test: {
     globals: true,
     environment: "node",
