@@ -1,18 +1,19 @@
-# Knowledge Graph Memory Server
+# memory-mcp
 
-A basic implementation of persistent memory using a local knowledge graph. This lets Claude remember information about the user across chats.
-
-Published on npm as [`@modelcontextprotocol/server-memory`](https://www.npmjs.com/package/@modelcontextprotocol/server-memory).
+A basic implementation of persistent memory using a local knowledge graph. This lets agent harnesses remember information across chats.
 
 ## Core Concepts
 
 ### Entities
+
 Entities are the primary nodes in the knowledge graph. Each entity has:
+
 - A unique name (identifier)
 - An entity type (e.g., "person", "organization", "event")
 - A list of observations
 
 Example:
+
 ```json
 {
   "name": "John_Smith",
@@ -22,9 +23,11 @@ Example:
 ```
 
 ### Relations
+
 Relations define directed connections between entities. They are always stored in active voice and describe how entities interact or relate to each other.
 
 Example:
+
 ```json
 {
   "from": "John_Smith",
@@ -32,7 +35,9 @@ Example:
   "relationType": "works_at"
 }
 ```
+
 ### Observations
+
 Observations are discrete pieces of information about an entity. They are:
 
 - Stored as strings
@@ -41,6 +46,7 @@ Observations are discrete pieces of information about an entity. They are:
 - Should be atomic (one fact per observation)
 
 Example:
+
 ```json
 {
   "entityName": "John_Smith",
@@ -55,6 +61,7 @@ Example:
 ## API
 
 ### Tools
+
 - **create_entities**
   - Create multiple new entities in the knowledge graph
   - Input: `entities` (array of objects)
@@ -166,22 +173,27 @@ Add this to your claude_desktop_config.json:
   "mcpServers": {
     "memory": {
       "command": "docker",
-      "args": ["run", "-i", "-v", "claude-memory:/app/dist", "--rm", "mcp/memory"]
+      "args": [
+        "run",
+        "-i",
+        "-v",
+        "claude-memory:/app/dist",
+        "--rm",
+        "mcp/memory"
+      ]
     }
   }
 }
 ```
 
 #### NPX
+
 ```json
 {
   "mcpServers": {
     "memory": {
       "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-memory"
-      ]
+      "args": ["-y", "@analyticsrequired/memory-mcp"]
     }
   }
 }
@@ -194,12 +206,7 @@ On Windows, use `cmd /c` to launch `npx`:
   "mcpServers": {
     "memory": {
       "command": "cmd",
-      "args": [
-        "/c",
-        "npx",
-        "-y",
-        "@modelcontextprotocol/server-memory"
-      ]
+      "args": ["/c", "npx", "-y", "@analyticsrequired/memory-mcp"]
     }
   }
 }
@@ -214,10 +221,7 @@ The server can be configured using the following environment variables:
   "mcpServers": {
     "memory": {
       "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-memory"
-      ],
+      "args": ["-y", "@analyticsrequired/memory-mcp"],
       "env": {
         "MEMORY_FILE_PATH": "/path/to/custom/memory.jsonl"
       }
@@ -233,12 +237,7 @@ On Windows, use:
   "mcpServers": {
     "memory": {
       "command": "cmd",
-      "args": [
-        "/c",
-        "npx",
-        "-y",
-        "@modelcontextprotocol/server-memory"
-      ],
+      "args": ["/c", "npx", "-y", "@analyticsrequired/memory-mcp"],
       "env": {
         "MEMORY_FILE_PATH": "/path/to/custom/memory.jsonl"
       }
@@ -294,10 +293,7 @@ Alternatively, you can add the configuration to a file called `.vscode/mcp.json`
   "servers": {
     "memory": {
       "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-memory"
-      ]
+      "args": ["-y", "@analyticsrequired/memory-mcp"]
     }
   }
 }
@@ -310,12 +306,7 @@ On Windows, use:
   "servers": {
     "memory": {
       "command": "cmd",
-      "args": [
-        "/c",
-        "npx",
-        "-y",
-        "@modelcontextprotocol/server-memory"
-      ]
+      "args": ["/c", "npx", "-y", "@analyticsrequired/memory-mcp"]
     }
   }
 }
@@ -345,7 +336,7 @@ On Windows, use:
 
 The prompt for utilizing memory depends on the use case. Changing the prompt will help the model determine the frequency and types of memories created.
 
-Here is an example prompt for chat personalization. You could use this prompt in the "Custom Instructions" field of a [Claude.ai Project](https://www.anthropic.com/news/projects). 
+Here is an example prompt for chat personalization. You could use this prompt in the "Custom Instructions" field of a [Claude.ai Project](https://www.anthropic.com/news/projects).
 
 ```
 Follow these steps for each interaction:
@@ -378,7 +369,7 @@ Follow these steps for each interaction:
 Docker:
 
 ```sh
-docker build -t mcp/memory -f src/memory/Dockerfile . 
+docker build -t mcp/memory -f src/memory/Dockerfile .
 ```
 
 For Awareness: a prior mcp/memory volume contains an index.js file that could be overwritten by the new container. If you are using a docker volume for storage, delete the old docker volume's `index.js` file before starting the new container.

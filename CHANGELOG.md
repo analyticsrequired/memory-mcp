@@ -1,4 +1,4 @@
-# @modelcontextprotocol/server-memory
+# @analyticsrequired/memory-mcp
 
 ## 2.1.0
 
