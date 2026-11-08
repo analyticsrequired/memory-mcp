@@ -1,0 +1,57 @@
+# @modelcontextprotocol/server-memory
+
+## 2.1.0
+
+### Minor Changes
+
+- [#5394](https://github.com/modelcontextprotocol/servers/pull/5394) [`27148ef`](https://github.com/modelcontextprotocol/servers/commit/27148ef87d8836a0ca138b807866967cca04ca7a) [@cliffhall](https://github.com/cliffhall) - Add optional lightweight read modes, so a large graph need not be returned whole: `observationLimit` on `read_graph`, `search_nodes` and `open_nodes` caps the observations returned per entity and adds each entity's total as `observationCount` (`0` gives an overview of names, types and counts), `entityTypes` on `read_graph` keeps only entities of those types, and `limit` on `search_nodes` caps the number of matches. Calls without them return what they always have. The `read_graph` description now says when to use it rather than `search_nodes` or `open_nodes`.
+
+### Patch Changes
+
+- [#5362](https://github.com/modelcontextprotocol/servers/pull/5362) [`3a412f5`](https://github.com/modelcontextprotocol/servers/commit/3a412f57262e9ecada94dd7d44fc5367c5e64c80) [@cliffhall](https://github.com/cliffhall) - Warn on stderr at startup when the memory file is inside a `node_modules` directory, where reinstalling or updating the server, or clearing the npx cache, can delete it, and recommend in the README setting `MEMORY_FILE_PATH` to an absolute path you own. The default path is unchanged.
+
+- [#5349](https://github.com/modelcontextprotocol/servers/pull/5349) [`d7ebd6f`](https://github.com/modelcontextprotocol/servers/commit/d7ebd6fbce355230b0ab1c383da07d23f90368d8) [@cliffhall](https://github.com/cliffhall) - `create_entities`, `create_relations` and `add_observations` now declare `idempotentHint: true`. Each already skips what is stored, so repeating a call with the same arguments has no additional effect on the graph, as with the delete tools.
+
+- [#5357](https://github.com/modelcontextprotocol/servers/pull/5357) [`01062fc`](https://github.com/modelcontextprotocol/servers/commit/01062fc80b9c70355a6216d10c564cf9459e2680) [@cliffhall](https://github.com/cliffhall) - `add_observations` stores an observation repeated within one call once, and reports it once in `addedObservations`, instead of storing it twice.
+
+- [#5393](https://github.com/modelcontextprotocol/servers/pull/5393) [`942d8f1`](https://github.com/modelcontextprotocol/servers/commit/942d8f155e44242a34aa89f6943f2c21eac3047b) [@cliffhall](https://github.com/cliffhall) - The `search_nodes` and `open_nodes` tool descriptions now say when to use each one and which sibling read tool to prefer instead, so a model looks an entity up by name with `open_nodes`, searches by keyword with `search_nodes`, and leaves `read_graph` for when it needs the whole graph.
+
+## 2.0.1
+
+### Patch Changes
+
+- [#5291](https://github.com/modelcontextprotocol/servers/pull/5291) [`91d3745`](https://github.com/modelcontextprotocol/servers/commit/91d3745b9dd604c503e182aef19a9caaf85f0629) [@cliffhall](https://github.com/cliffhall) - A failed `memory.json` to `memory.jsonl` migration now stops startup with an error naming both paths and the cause, instead of being silently ignored and starting the server on an empty graph.
+
+- [#5292](https://github.com/modelcontextprotocol/servers/pull/5292) [`df743d4`](https://github.com/modelcontextprotocol/servers/commit/df743d41b076691c3aebc90bf1a0943e6935fcce) [@cliffhall](https://github.com/cliffhall) - Keep the fields the server does not model on stored entities and relations (a `createdAt` written by an older version or another client, say) when a write saves the graph. Before, every write dropped them from the memory file, even an empty `create_entities` call, so `create_entities`, `create_relations` and `add_observations` destroyed data despite declaring `destructiveHint: false`. A record a delete tool removes still goes with its fields, and the fields never appear in tool results.
+
+## 2.0.0
+
+### Major Changes
+
+- [#5118](https://github.com/modelcontextprotocol/servers/pull/5118) [`5b400a6`](https://github.com/modelcontextprotocol/servers/commit/5b400a6ec05bd883522665ebeae110bf1a2744ff) [@cliffhall](https://github.com/cliffhall) - Move to the TypeScript SDK v2 packages (`@modelcontextprotocol/server`) from `@modelcontextprotocol/sdk` 1.x ([#4856](https://github.com/modelcontextprotocol/servers/issues/4856)). Breaking for clients: the server now requires Node.js 24 or later; over stdio, a single incoming JSON-RPC message larger than 10 MiB now closes the connection (the SDK v2 default read-buffer cap; SDK 1.x buffered without a limit); an unknown tool name is rejected with JSON-RPC error `-32602` instead of returning an `isError` result; error messages no longer carry the `MCP error <code>: ` prefix, and input-validation messages name the field first (`field: message`); tool schemas in `tools/list` declare JSON Schema 2020-12 instead of draft-07; and tools no longer advertise `execution.taskSupport`.
+
+### Minor Changes
+
+- [#5131](https://github.com/modelcontextprotocol/servers/pull/5131) [`419200b`](https://github.com/modelcontextprotocol/servers/commit/419200b8a4d1e66c294575930ac7be29d4b37330) [@cliffhall](https://github.com/cliffhall) - Serve the 2026-07-28 protocol revision alongside the 2025 era on stdio, through the SDK's `serveStdio` entry ([#4852](https://github.com/modelcontextprotocol/servers/issues/4852)). A 2026-07-28 client gets `notifications/resources/updated` for `memory://knowledge-graph` on a `subscriptions/listen` stream whose `resourceSubscriptions` name it; 2025-era clients still subscribe with `resources/subscribe`.
+
+## 1.0.0
+
+The first semantic version, resuming semver after the date-stamped releases (last `2026.8.31`). It describes everything since `2026.8.31`, and is the last release of the legacy-era server, on the 1.x MCP SDK.
+
+### Patch Changes
+
+- [#5008](https://github.com/modelcontextprotocol/servers/pull/5008) [`bb8aa6f`](https://github.com/modelcontextprotocol/servers/commit/bb8aa6fd73b2a2fd68bc7084292296d2b0084780) [@cliffhall](https://github.com/cliffhall) - `create_entities` now reports the entities it skipped because their name already exists (or repeats earlier in the same call): the structured result lists them in a new optional `skipped` array, a second text item names them and points to `add_observations`, and the tool description says so. Skipped entities are still not created and their observations are still not added ([#4887](https://github.com/modelcontextprotocol/servers/issues/4887)).
+
+- [#4970](https://github.com/modelcontextprotocol/servers/pull/4970) [`a8127ba`](https://github.com/modelcontextprotocol/servers/commit/a8127ba956c12c7f6597b43765f1f7a68aee0d7e) [@cliffhall](https://github.com/cliffhall) - Build the server with an exported `createServer()` factory and start stdio only when the package is run as a program, so importing the module no longer starts a server. Behavior over stdio is unchanged.
+
+- [#5037](https://github.com/modelcontextprotocol/servers/pull/5037) [`7be08e9`](https://github.com/modelcontextprotocol/servers/commit/7be08e97f399721c215de52bfb74a5030c20f78f) [@cliffhall](https://github.com/cliffhall) - Two server processes sharing one memory file no longer silently discard each other's writes: every write tool now holds an exclusive lock file (`<memory file>.lock`) while it reads, changes and saves the graph, and a lock left by a crashed server is recovered automatically ([#4797](https://github.com/modelcontextprotocol/servers/issues/4797)).
+
+- [#4937](https://github.com/modelcontextprotocol/servers/pull/4937) [`478db6a`](https://github.com/modelcontextprotocol/servers/commit/478db6a5d5bc0bec3196e2c8c9461ec1597ded34) [@cliffhall](https://github.com/cliffhall) - Internal: `ensureMemoryFilePath` accepts the directory its default files live in, so the server's tests no longer write into the package directory. No change to how the server chooses or migrates its memory file.
+
+- [#5035](https://github.com/modelcontextprotocol/servers/pull/5035) [`2b1305f`](https://github.com/modelcontextprotocol/servers/commit/2b1305fc0db794cdf1bd57ca83d13fb8a195e869) [@cliffhall](https://github.com/cliffhall) - Lines in the memory file that the server cannot read (malformed JSON, an entity or relation that fails validation, an unknown record type) are no longer deleted by the next write. They are still left out of the graph, and are now written back unchanged after the graph's own lines.
+
+- [#5053](https://github.com/modelcontextprotocol/servers/pull/5053) [`c63255a`](https://github.com/modelcontextprotocol/servers/commit/c63255ae9616b110d6089fa343fcfdf3f5def534) [@cliffhall](https://github.com/cliffhall) - Stop shipping the compiled test helper `dist/__tests__/helpers.js` in the published package: the build now excludes everything under `__tests__/`, not just `*.test.ts`.
+
+- [#5013](https://github.com/modelcontextprotocol/servers/pull/5013) [`819ae90`](https://github.com/modelcontextprotocol/servers/commit/819ae904cc08ab0b208ccb91addc3169b3ece85b) [@cliffhall](https://github.com/cliffhall) - Saving the knowledge graph keeps the memory file's permission bits (an operator's `0600` no longer comes back `0644`), and a write to a read-only memory file now fails with `EACCES` instead of silently replacing it ([#4827](https://github.com/modelcontextprotocol/servers/issues/4827)).
+
+- [#5087](https://github.com/modelcontextprotocol/servers/pull/5087) [`09edf63`](https://github.com/modelcontextprotocol/servers/commit/09edf633b93cdaf094ba43622294d587afcd1023) [@cliffhall](https://github.com/cliffhall) - Require `@modelcontextprotocol/sdk` 1.31.0 or later (was `^1.30.0`), so an install can no longer resolve an SDK version affected by GHSA-6qxp-vccf-f47h. The advisory concerns the SDK's OAuth client, which this server does not use.
