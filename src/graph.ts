@@ -210,9 +210,11 @@ export class KnowledgeGraphManager {
       await fs.access(this.memoryFilePath, fs.constants.W_OK);
       mode = (await fs.stat(this.memoryFilePath)).mode & 0o777;
     } catch (error) {
-      if (
-        !(error instanceof Error && "code" in error && error.code === "ENOENT")
-      ) {
+      if (!(
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "ENOENT"
+      )) {
         throw error;
       }
     }
