@@ -7,12 +7,9 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import {
-  KnowledgeGraphManager,
-  Entity,
-  skippedEntityNames,
-  skippedEntitiesNotice,
-} from "@/index.js";
+import { KnowledgeGraphManager } from "@/graph.js";
+import { Entity } from "@/schemas.js";
+import { skippedEntitiesNotice, skippedEntityNames } from "@/tools.js";
 
 describe("create reporting", () => {
   let manager: KnowledgeGraphManager;

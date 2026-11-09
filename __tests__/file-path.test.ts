@@ -14,9 +14,9 @@ import os from "os";
 import {
   ensureMemoryFilePath,
   defaultMemoryPath,
-  expandHome,
   memoryFileLocationWarning,
 } from "@/index.js";
+import { expandHome } from "@/utils.js";
 
 describe("ensureMemoryFilePath", () => {
   let originalEnv: string | undefined;
