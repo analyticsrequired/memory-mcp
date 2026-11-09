@@ -2,6 +2,8 @@
 
 A basic implementation of persistent memory using a local knowledge graph. This lets agent harnesses remember information across chats.
 
+This is a fork of: https://github.com/modelcontextprotocol/servers/tree/main/src/memory
+
 ## Core Concepts
 
 ### Entities
