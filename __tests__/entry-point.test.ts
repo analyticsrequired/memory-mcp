@@ -9,7 +9,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { pathToFileURL } from "url";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
-import { isMainModule, main } from "../src/index.js";
+import { isMainModule, main } from "@/index.js";
 import { call, makeTempGraph, readFileText } from "./helpers.js";
 
 describe("main", () => {

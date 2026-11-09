@@ -4,7 +4,7 @@ import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
-import { resolvePackageVersion, SERVER_VERSION } from "../src/version";
+import { resolvePackageVersion, SERVER_VERSION } from "@/version.js";
 
 const packageJson = createRequire(import.meta.url)("../package.json") as {
   version: string;

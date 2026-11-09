@@ -14,7 +14,7 @@ import {
   ProtocolError,
   type JSONRPCMessage,
 } from "@modelcontextprotocol/client";
-import { main } from "../src/index.js";
+import { main } from "@/index.js";
 import { call, makeTempGraph } from "./helpers.js";
 
 const URI = "memory://knowledge-graph";

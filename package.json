@@ -22,9 +22,9 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc && shx chmod +x dist/*.js",
+    "build": "vite build && shx chmod +x dist/*.js",
     "prepare": "npm run build",
-    "watch": "tsc --watch",
+    "watch": "vite build --watch",
     "test": "vitest run",
     "format": "prettier --write \"**/*.{ts,mts,cts,js,mjs,cjs}\" --ignore-path ../../.prettierignore",
     "format:check": "prettier --check \"**/*.{ts,mts,cts,js,mjs,cjs}\" --ignore-path ../../.prettierignore",
@@ -43,6 +43,7 @@
     "@vitest/coverage-v8": "^4.1.12",
     "shx": "^0.4.0",
     "typescript": "^5.8.2",
+    "vite": "^8.3.6",
     "vitest": "^4.1.12"
   },
   "allowScripts": {
