@@ -7,8 +7,13 @@
 // of every tool result, since the output schemas do not allow them.
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { promises as fs } from "fs";
-import { call, connect, makeTempGraph, readFileText } from "./helpers.js";
-import type { Connection } from "./helpers.js";
+import {
+  call,
+  connect,
+  makeTempGraph,
+  readFileText,
+  Connection,
+} from "./helpers.js";
 
 // Extras of every JSON kind, nested ones included, and falsy values that a
 // truthiness check would lose.

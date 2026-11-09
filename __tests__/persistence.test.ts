@@ -12,8 +12,8 @@ import {
   makeTempGraph,
   readFileText,
   textOf,
+  Connection,
 } from "./helpers.js";
-import type { Connection } from "./helpers.js";
 
 const alice = {
   name: "Alice",

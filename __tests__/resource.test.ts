@@ -5,8 +5,7 @@
 // tests that called the register functions with a mocked McpServer.
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { Client, JSONRPCMessage } from "@modelcontextprotocol/client";
-import { call, connect, makeTempGraph } from "./helpers.js";
-import type { Connection } from "./helpers.js";
+import { call, connect, makeTempGraph, Connection } from "./helpers.js";
 
 const URI = "memory://knowledge-graph";
 

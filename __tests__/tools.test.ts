@@ -5,8 +5,7 @@
 // cites its issue, so the PR that fixes it has a test to change.
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import type { Client } from "@modelcontextprotocol/client";
-import { call, connect, makeTempGraph, textOf } from "./helpers.js";
-import type { Connection } from "./helpers.js";
+import { call, connect, makeTempGraph, textOf, Connection } from "./helpers.js";
 
 const JSON_SCHEMA_2020_12 = "https://json-schema.org/draft/2020-12/schema";
 

@@ -6,8 +6,7 @@
 // knowledge-graph resource never carries observationCount.
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import type { Client } from "@modelcontextprotocol/client";
-import { call, connect, makeTempGraph, textOf } from "./helpers.js";
-import type { Connection } from "./helpers.js";
+import { call, connect, makeTempGraph, textOf, Connection } from "./helpers.js";
 
 const alice = {
   name: "Alice",
