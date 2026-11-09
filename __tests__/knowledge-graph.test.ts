@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { Entity, Relation } from "@/index.js";
 import { KnowledgeGraphManager } from "@/graph.js";
+import { Entity, Relation } from "@/schemas.js";
 
 describe("KnowledgeGraphManager", () => {
   let manager: KnowledgeGraphManager;
