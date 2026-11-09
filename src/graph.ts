@@ -1,7 +1,8 @@
 import { randomBytes } from "crypto";
 import { promises as fs } from "fs";
 import path from "path";
-import { FileLockOptions, withFileLock } from "@/index.js";
+import { withFileLock } from "./memfile.js";
+import { FileLockOptions } from "./memfile.js";
 import {
   KnowledgeGraph,
   EntitySchema,

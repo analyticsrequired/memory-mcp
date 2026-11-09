@@ -11,11 +11,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { promises as fs } from "fs";
 import path from "path";
 import os from "os";
-import {
-  ensureMemoryFilePath,
-  defaultMemoryPath,
-  memoryFileLocationWarning,
-} from "@/index.js";
+import { defaultMemoryPath, memoryFileLocationWarning } from "@/memfile.js";
+import { ensureMemoryFilePath } from "@/memfile.js";
 import { expandHome } from "@/utils.js";
 
 describe("ensureMemoryFilePath", () => {

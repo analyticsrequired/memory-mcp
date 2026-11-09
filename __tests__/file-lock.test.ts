@@ -6,7 +6,7 @@ import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
 import { spawnSync } from "child_process";
-import { withFileLock } from "@/index.js";
+import { withFileLock } from "@/memfile.js";
 import { KnowledgeGraphManager } from "@/graph.js";
 import { makeTempGraph } from "./helpers.js";
 

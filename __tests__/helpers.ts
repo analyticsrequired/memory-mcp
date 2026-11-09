@@ -9,7 +9,7 @@ import path from "path";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
 import type { McpServer, CallToolResult } from "@modelcontextprotocol/server";
 import { Client } from "@modelcontextprotocol/client";
-import { createServer } from "@/index.js";
+import { createServer } from "@/server.js";
 
 export interface Connection {
   client: Client;
