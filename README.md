@@ -22,7 +22,7 @@ Example:
   "name": "John_Smith",
   "entityType": "person",
   "observations": ["Speaks fluent Spanish"],
-  "namespace": "default"
+  "namespace": "story"
 }
 ```
 
@@ -37,7 +37,7 @@ Example:
   "from": "John_Smith",
   "to": "Anthropic",
   "relationType": "works_at",
-  "namespace": "default"
+  "namespace": "story"
 }
 ```
 
@@ -75,7 +75,7 @@ A namespace keeps one set of entities and relations apart from another in the sa
 - **Reads stay inside one namespace.** `read_graph`, `search_nodes` and `open_nodes` read the namespace they are given; there is no way to read "all of them" through a tool. The [knowledge-graph resource](#resources) is the one place that serves every namespace.
 - **Whole namespaces.** `rename_namespace` and `delete_namespace` act on a namespace and everything in it at once. Renaming never merges into an existing namespace.
 
-In the memory file, each namespace is a `{"type":"namespace","name":…}` line, written before the entities and relations, and every entity and relation line carries a `namespace` member. A file written before namespaces existed (records with no `namespace`) is read as the single namespace `default`, which then exists like any other and can be used, renamed or deleted; records read this way are written back exactly as they were until they are changed, and everything the server writes new has the member. A record whose `namespace` is not a non-empty string, or a namespace line with no valid `name`, is treated like any other unreadable line: it is skipped and written back unchanged.
+In the memory file, each namespace is a `{"type":"namespace","name":…}` line, written before the entities and relations, and every entity and relation line carries a `namespace` member. A record with no `namespace` member, as in a file written before namespaces existed, is not given one: it is treated like any other unreadable line, skipped and written back unchanged, so it is never served and never lost. To use such a file, add `"namespace":"<name>"` to its entity and relation lines. A record whose `namespace` is not a non-empty string, or a namespace line with no valid `name`, is treated like any other unreadable line: it is skipped and written back unchanged.
 
 ## API
 

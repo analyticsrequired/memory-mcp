@@ -3,11 +3,6 @@ import { z } from "zod";
 const SEARCH_QUERY_MAX_LENGTH = 2048;
 const NAMESPACE_MAX_LENGTH = 256;
 
-// The namespace of a stored record that has no namespace member: every record
-// written before namespaces existed. Nothing ever falls back to it: a tool
-// call must name its namespace, and reaches these records by naming this one.
-export const LEGACY_NAMESPACE = "default";
-
 // A namespace is an exact, case-sensitive string, like an entity name.
 export const NamespaceSchema = z
   .string()
@@ -53,16 +48,6 @@ export const RelationInputSchema = RelationSchema.omit({ namespace: true });
 // anything is in it.
 export const NamespaceRecordSchema = z.object({ name: NamespaceSchema });
 
-// A stored entity or relation may lack a namespace: records written before
-// namespaces existed have none, and read as the legacy namespace.
-export const StoredEntitySchema = EntitySchema.extend({
-  namespace: NamespaceSchema.default(LEGACY_NAMESPACE),
-});
-
-export const StoredRelationSchema = RelationSchema.extend({
-  namespace: NamespaceSchema.default(LEGACY_NAMESPACE),
-});
-
 // We are storing our memory using entities, relations, and observations in a graph structure
 export interface Entity {
   name: string;
@@ -83,8 +68,8 @@ export interface Relation {
 export type RelationInput = Omit<Relation, "namespace">;
 
 // The namespaces that were created with create_namespace. A namespace also
-// exists while any entity or relation names it, so one needs no record when it
-// comes from a file written before namespaces existed.
+// exists while any entity or relation names it, so one needs no record of its
+// own when a file was edited by hand to hold records in it.
 export interface NamespaceRecord {
   name: string;
 }

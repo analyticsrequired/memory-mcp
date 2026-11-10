@@ -805,61 +805,35 @@ describe("namespaces over the protocol", () => {
       );
     });
 
-    it("reads a file made before namespaces as the namespace default", async () => {
-      await fs.writeFile(
-        filePath,
-        '{"type":"entity","name":"Alice","entityType":"person","observations":[]}\n' +
-          '{"type":"relation","from":"Alice","to":"Alice","relationType":"is"}\n',
-      );
-
-      expect(await list()).toEqual({
-        namespaces: [
-          { namespace: "default", entityCount: 1, relationCount: 1 },
-        ],
-      });
-      expect(await read("default")).toEqual({
-        entities: [inNs({ ...alice, observations: [] })],
-        relations: [inNs({ from: "Alice", to: "Alice", relationType: "is" })],
-      });
-      expect(
-        errorText(await call(client, "read_graph", { namespace: "a" })),
-      ).toBe(missing("a"));
-    });
-
-    it("keeps the records it did not touch exactly as they were stored", async () => {
-      const legacy =
+    it("treats an entity or relation with no namespace as unreadable, and keeps its line", async () => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const entity =
         '{"type":"entity","name":"Alice","entityType":"person","observations":[]}';
-      const explicit =
-        '{"type":"entity","namespace":"default","name":"Bob","entityType":"person","observations":[]}';
-      await fs.writeFile(filePath, `${legacy}\n${explicit}\n`);
+      const relation =
+        '{"type":"relation","from":"Alice","to":"Alice","relationType":"is"}';
+      await fs.writeFile(filePath, `${entity}\n${relation}\n`);
 
-      // A write in another namespace rewrites the file but not these records:
-      // the one stored without a namespace member still has none, and the one
-      // stored with an explicit "default" still has it.
+      // Nothing falls back to a namespace for these, so they are in none.
+      expect(await list()).toEqual({ namespaces: [] });
+
       await create("a");
-      await call(client, "create_entities", {
-        namespace: "a",
-        entities: [bob],
-      });
-
       expect((await readFileText(filePath)).split("\n")).toEqual([
         '{"type":"namespace","name":"a"}',
-        legacy,
-        explicit,
-        '{"type":"entity","namespace":"a","name":"Bob","entityType":"person","observations":["likes tea"]}',
+        entity,
+        relation,
         "",
       ]);
     });
 
-    it("gives a record that rename_namespace moves a namespace member, and keeps unmodelled fields", async () => {
+    it("keeps unmodelled fields when rename_namespace moves a record", async () => {
       await fs.writeFile(
         filePath,
-        '{"type":"entity","name":"Alice","entityType":"person","observations":[],"createdAt":"2025-01-01"}\n' +
-          '{"type":"relation","from":"Alice","to":"Alice","relationType":"is","weight":2}\n',
+        '{"type":"entity","namespace":"a","name":"Alice","entityType":"person","observations":[],"createdAt":"2025-01-01"}\n' +
+          '{"type":"relation","namespace":"a","from":"Alice","to":"Alice","relationType":"is","weight":2}\n',
       );
 
       await call(client, "rename_namespace", {
-        namespace: "default",
+        namespace: "a",
         newNamespace: "b",
       });
 

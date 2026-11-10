@@ -5,8 +5,7 @@
 // create_entities, create_relations and add_observations would drop data they
 // did not touch, while declaring destructiveHint: false. The extras stay out
 // of every tool result, since the output schemas do not allow them. The seeded
-// records have no namespace member, so they read as the namespace "default"
-// and are kept without one; a record a write creates carries its namespace.
+// records name their namespace, as every record the server writes does.
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { promises as fs } from "fs";
 import {
@@ -41,9 +40,14 @@ const bobKnowsAlice = { from: "Bob", to: "Alice", relationType: "knows" };
 // The stored records, with the unknown members written before the modelled
 // ones, as another client might order them.
 const seedRecords = [
-  { ...aliceExtras, type: "entity", ...alice },
-  { type: "entity", ...bob, ...bobExtras },
-  { type: "relation", ...aliceManagesBob, ...relationExtras },
+  { ...aliceExtras, type: "entity", namespace: "test", ...alice },
+  { type: "entity", namespace: "test", ...bob, ...bobExtras },
+  {
+    type: "relation",
+    namespace: "test",
+    ...aliceManagesBob,
+    ...relationExtras,
+  },
 ];
 
 describe("unmodelled fields on stored records (#5058)", () => {
@@ -80,13 +84,15 @@ describe("unmodelled fields on stored records (#5058)", () => {
 
   const storedAlice = (observations = alice.observations) => ({
     type: "entity",
+    namespace: "test",
     ...alice,
     observations,
     ...aliceExtras,
   });
-  const storedBob = { type: "entity", ...bob, ...bobExtras };
+  const storedBob = { type: "entity", namespace: "test", ...bob, ...bobExtras };
   const storedRelation = {
     type: "relation",
+    namespace: "test",
     ...aliceManagesBob,
     ...relationExtras,
   };
@@ -94,14 +100,14 @@ describe("unmodelled fields on stored records (#5058)", () => {
   it("writes the modelled fields first and the extras after them, unchanged", async () => {
     const { client } = await open();
     await call(client, "create_entities", {
-      namespace: "default",
+      namespace: "test",
       entities: [],
     });
 
     expect((await readFileText(filePath)).split("\n")).toEqual([
-      '{"type":"entity","name":"Alice","entityType":"person","observations":["Works at Acme"],"createdAt":"2025-01-01T00:00:00Z","meta":{"source":"import","tags":["a","b"],"verified":false,"rank":0},"note":null}',
-      '{"type":"entity","name":"Bob","entityType":"person","observations":[],"createdAt":"2025-02-02T00:00:00Z"}',
-      '{"type":"relation","from":"Alice","to":"Bob","relationType":"manages","since":2019,"weight":[1,2,{"strong":true}]}',
+      '{"type":"entity","namespace":"test","name":"Alice","entityType":"person","observations":["Works at Acme"],"createdAt":"2025-01-01T00:00:00Z","meta":{"source":"import","tags":["a","b"],"verified":false,"rank":0},"note":null}',
+      '{"type":"entity","namespace":"test","name":"Bob","entityType":"person","observations":[],"createdAt":"2025-02-02T00:00:00Z"}',
+      '{"type":"relation","namespace":"test","from":"Alice","to":"Bob","relationType":"manages","since":2019,"weight":[1,2,{"strong":true}]}',
       "",
     ]);
   });
@@ -120,7 +126,7 @@ describe("unmodelled fields on stored records (#5058)", () => {
       "a create_entities of a new entity",
       "create_entities",
       { entities: [carol] },
-      [{ type: "entity", namespace: "default", ...carol }],
+      [{ type: "entity", namespace: "test", ...carol }],
     ],
     ["an empty create_relations", "create_relations", { relations: [] }, []],
     [
@@ -133,7 +139,7 @@ describe("unmodelled fields on stored records (#5058)", () => {
       "a create_relations of a new relation",
       "create_relations",
       { relations: [bobKnowsAlice] },
-      [{ type: "relation", namespace: "default", ...bobKnowsAlice }],
+      [{ type: "relation", namespace: "test", ...bobKnowsAlice }],
     ],
     ["an empty add_observations", "add_observations", { observations: [] }, []],
     [
@@ -147,7 +153,7 @@ describe("unmodelled fields on stored records (#5058)", () => {
     async (_label, tool, args, added: Record<string, unknown>[]) => {
       const { client } = await open();
       const result = await call(client, tool, {
-        namespace: "default",
+        namespace: "test",
         ...args,
       });
       expect(result.isError).toBeUndefined();
@@ -167,7 +173,7 @@ describe("unmodelled fields on stored records (#5058)", () => {
   it("keeps them on an entity whose observations change, with the new observations", async () => {
     const { client } = await open();
     await call(client, "add_observations", {
-      namespace: "default",
+      namespace: "test",
       observations: [{ entityName: "Alice", contents: ["Likes tea"] }],
     });
     expect(await records()).toEqual([
@@ -177,7 +183,7 @@ describe("unmodelled fields on stored records (#5058)", () => {
     ]);
 
     await call(client, "delete_observations", {
-      namespace: "default",
+      namespace: "test",
       deletions: [{ entityName: "Alice", observations: ["Works at Acme"] }],
     });
     expect(await records()).toEqual([
@@ -192,7 +198,7 @@ describe("unmodelled fields on stored records (#5058)", () => {
   it("drops them with a deleted entity and its relations, and keeps the rest", async () => {
     const { client } = await open();
     await call(client, "delete_entities", {
-      namespace: "default",
+      namespace: "test",
       entityNames: ["Bob"],
     });
     expect(await records()).toEqual([storedAlice()]);
@@ -201,7 +207,7 @@ describe("unmodelled fields on stored records (#5058)", () => {
   it("drops them with a deleted relation, and keeps the entities'", async () => {
     const { client } = await open();
     await call(client, "delete_relations", {
-      namespace: "default",
+      namespace: "test",
       relations: [aliceManagesBob],
     });
     expect(await records()).toEqual([storedAlice(), storedBob]);
@@ -210,7 +216,7 @@ describe("unmodelled fields on stored records (#5058)", () => {
   it("keeps them across a restart of the server", async () => {
     const first = await open();
     await call(first.client, "create_entities", {
-      namespace: "default",
+      namespace: "test",
       entities: [carol],
     });
     await first.close();
@@ -218,13 +224,13 @@ describe("unmodelled fields on stored records (#5058)", () => {
 
     const { client } = await open();
     await call(client, "add_observations", {
-      namespace: "default",
+      namespace: "test",
       observations: [],
     });
     expect(await records()).toEqual([
       storedAlice(),
       storedBob,
-      { type: "entity", namespace: "default", ...carol },
+      { type: "entity", namespace: "test", ...carol },
       storedRelation,
     ]);
   });
@@ -237,13 +243,13 @@ describe("unmodelled fields on stored records (#5058)", () => {
     };
 
     expect(
-      (await call(client, "read_graph", { namespace: "default" }))
+      (await call(client, "read_graph", { namespace: "test" }))
         .structuredContent,
     ).toEqual(graph);
     expect(
       (
         await call(client, "search_nodes", {
-          namespace: "default",
+          namespace: "test",
           query: "Alice",
         })
       ).structuredContent,
@@ -251,7 +257,7 @@ describe("unmodelled fields on stored records (#5058)", () => {
     expect(
       (
         await call(client, "open_nodes", {
-          namespace: "default",
+          namespace: "test",
           names: ["Alice", "Bob"],
         })
       ).structuredContent,
@@ -262,18 +268,18 @@ describe("unmodelled fields on stored records (#5058)", () => {
   // as one, not set the prototype of the extras or of the written record.
   it("keeps a __proto__ member as data", async () => {
     const line =
-      '{"type":"entity","name":"Dave","entityType":"person","observations":[],"__proto__":{"polluted":true}}';
+      '{"type":"entity","namespace":"test","name":"Dave","entityType":"person","observations":[],"__proto__":{"polluted":true}}';
     await fs.writeFile(filePath, line + "\n");
     const { client } = await open();
 
     await call(client, "create_entities", {
-      namespace: "default",
+      namespace: "test",
       entities: [],
     });
 
     expect(await readFileText(filePath)).toBe(line + "\n");
     expect(
-      (await call(client, "read_graph", { namespace: "default" }))
+      (await call(client, "read_graph", { namespace: "test" }))
         .structuredContent,
     ).toEqual({
       entities: [

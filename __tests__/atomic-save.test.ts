@@ -35,8 +35,8 @@ describe("KnowledgeGraphManager persistence durability", () => {
 
   it("never truncates the live memory file in place", async () => {
     const manager = new KnowledgeGraphManager(testFilePath);
-    await manager.createNamespace("default");
-    await manager.createEntities("default", [
+    await manager.createNamespace("test");
+    await manager.createEntities("test", [
       {
         name: "Alice",
         entityType: "person",
@@ -49,7 +49,7 @@ describe("KnowledgeGraphManager persistence durability", () => {
     const writeFileSpy = vi.spyOn(fs, "writeFile");
     const openSpy = vi.spyOn(fs, "open");
 
-    await manager.createEntities("default", [
+    await manager.createEntities("test", [
       {
         name: "Bob",
         entityType: "person",
@@ -67,8 +67,8 @@ describe("KnowledgeGraphManager persistence durability", () => {
 
   it("leaves the committed graph intact when the write fails midway", async () => {
     const manager = new KnowledgeGraphManager(testFilePath);
-    await manager.createNamespace("default");
-    await manager.createEntities("default", [
+    await manager.createNamespace("test");
+    await manager.createEntities("test", [
       {
         name: "Alice",
         entityType: "person",
@@ -85,7 +85,7 @@ describe("KnowledgeGraphManager persistence durability", () => {
     });
 
     await expect(
-      manager.createEntities("default", [
+      manager.createEntities("test", [
         {
           name: "Bob",
           entityType: "person",
@@ -100,15 +100,15 @@ describe("KnowledgeGraphManager persistence durability", () => {
     expect(await fs.readFile(testFilePath, "utf-8")).toBe(before);
 
     const graph = await new KnowledgeGraphManager(testFilePath).readGraph(
-      "default",
+      "test",
     );
     expect(graph.entities.map((e) => e.name)).toEqual(["Alice"]);
   });
 
   it("does not leave temporary files behind after a successful write", async () => {
     const manager = new KnowledgeGraphManager(testFilePath);
-    await manager.createNamespace("default");
-    await manager.createEntities("default", [
+    await manager.createNamespace("test");
+    await manager.createEntities("test", [
       {
         name: "Alice",
         entityType: "person",
@@ -121,8 +121,8 @@ describe("KnowledgeGraphManager persistence durability", () => {
 
   it("cleans up the temporary file when the write fails", async () => {
     const manager = new KnowledgeGraphManager(testFilePath);
-    await manager.createNamespace("default");
-    await manager.createEntities("default", [
+    await manager.createNamespace("test");
+    await manager.createEntities("test", [
       {
         name: "Alice",
         entityType: "person",
@@ -135,7 +135,7 @@ describe("KnowledgeGraphManager persistence durability", () => {
     });
 
     await expect(
-      manager.createEntities("default", [
+      manager.createEntities("test", [
         {
           name: "Bob",
           entityType: "person",
@@ -150,8 +150,8 @@ describe("KnowledgeGraphManager persistence durability", () => {
 
   it("still persists graph contents correctly across reloads", async () => {
     const manager = new KnowledgeGraphManager(testFilePath);
-    await manager.createNamespace("default");
-    await manager.createEntities("default", [
+    await manager.createNamespace("test");
+    await manager.createEntities("test", [
       {
         name: "Alice",
         entityType: "person",
@@ -163,19 +163,19 @@ describe("KnowledgeGraphManager persistence durability", () => {
         observations: ["likes programming"],
       },
     ]);
-    await manager.createRelations("default", [
+    await manager.createRelations("test", [
       { from: "Alice", to: "Bob", relationType: "knows" },
     ]);
 
     const reloaded = await new KnowledgeGraphManager(testFilePath).readGraph(
-      "default",
+      "test",
     );
     expect(reloaded.entities.map((e) => e.name).sort()).toEqual([
       "Alice",
       "Bob",
     ]);
     expect(reloaded.relations).toEqual([
-      { from: "Alice", to: "Bob", relationType: "knows", namespace: "default" },
+      { from: "Alice", to: "Bob", relationType: "knows", namespace: "test" },
     ]);
   });
 });

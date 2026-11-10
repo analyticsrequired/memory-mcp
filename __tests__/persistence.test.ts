@@ -15,33 +15,33 @@ import {
   Connection,
 } from "./helpers.js";
 
-// The fixtures name the default namespace, so each is both an input (an item
-// may repeat the call's namespace) and exactly what a tool returns. The graph
-// file never carries it: a record in the default namespace is stored without
-// one, which the file-format assertions below pin.
+// The fixtures are what a tool returns for the test namespace. Used as call
+// inputs, their own namespace member is ignored: the call's namespace decides.
+// Every record in the graph file carries its namespace, which the file-format
+// assertions below pin.
 const alice = {
   name: "Alice",
   entityType: "person",
   observations: ["Works at Acme", "Prefers email"],
-  namespace: "default",
+  namespace: "test",
 };
 const bob = {
   name: "Bob",
   entityType: "person",
   observations: [],
-  namespace: "default",
+  namespace: "test",
 };
 const carol = {
   name: "Carol",
   entityType: "person",
   observations: ["New hire"],
-  namespace: "default",
+  namespace: "test",
 };
 const aliceManagesBob = {
   from: "Alice",
   to: "Bob",
   relationType: "manages",
-  namespace: "default",
+  namespace: "test",
 };
 
 describe("memory persistence over the protocol", () => {
@@ -67,10 +67,10 @@ describe("memory persistence over the protocol", () => {
   }
 
   // For a test that starts from an empty file: namespaces are created
-  // explicitly, so the default one has to exist before anything is written.
+  // explicitly, so the test one has to exist before anything is written.
   async function openWithNamespace(): Promise<Connection> {
     const opened = await open();
-    await call(opened.client, "create_namespace", { namespace: "default" });
+    await call(opened.client, "create_namespace", { namespace: "test" });
     return opened;
   }
 
@@ -78,20 +78,20 @@ describe("memory persistence over the protocol", () => {
     it("writes one JSON object per line, namespaces then entities then relations, with a trailing newline", async () => {
       const { client } = await openWithNamespace();
       await call(client, "create_entities", {
-        namespace: "default",
+        namespace: "test",
         entities: [alice, bob],
       });
       await call(client, "create_relations", {
-        namespace: "default",
+        namespace: "test",
         relations: [aliceManagesBob],
       });
 
       expect(await readFileText(filePath)).toBe(
         [
-          '{"type":"namespace","name":"default"}',
-          '{"type":"entity","namespace":"default","name":"Alice","entityType":"person","observations":["Works at Acme","Prefers email"]}',
-          '{"type":"entity","namespace":"default","name":"Bob","entityType":"person","observations":[]}',
-          '{"type":"relation","namespace":"default","from":"Alice","to":"Bob","relationType":"manages"}',
+          '{"type":"namespace","name":"test"}',
+          '{"type":"entity","namespace":"test","name":"Alice","entityType":"person","observations":["Works at Acme","Prefers email"]}',
+          '{"type":"entity","namespace":"test","name":"Bob","entityType":"person","observations":[]}',
+          '{"type":"relation","namespace":"test","from":"Alice","to":"Bob","relationType":"manages"}',
           "",
         ].join("\n"),
       );
@@ -99,15 +99,15 @@ describe("memory persistence over the protocol", () => {
 
     it("does not create the file until the first write", async () => {
       const { client } = await open();
-      await call(client, "read_graph", { namespace: "default" });
-      await call(client, "search_nodes", { namespace: "default", query: "x" });
+      await call(client, "read_graph", { namespace: "test" });
+      await call(client, "search_nodes", { namespace: "test", query: "x" });
       expect(await fs.readdir(dir)).toEqual([]);
     });
 
     it("leaves only the graph file behind after a write", async () => {
       const { client } = await openWithNamespace();
       await call(client, "create_entities", {
-        namespace: "default",
+        namespace: "test",
         entities: [alice],
       });
       expect(await fs.readdir(dir)).toEqual(["memory.jsonl"]);
@@ -117,14 +117,14 @@ describe("memory persistence over the protocol", () => {
       const writer = await connect(filePath);
       try {
         await call(writer.client, "create_namespace", {
-          namespace: "default",
+          namespace: "test",
         });
         await call(writer.client, "create_entities", {
-          namespace: "default",
+          namespace: "test",
           entities: [alice, bob],
         });
         await call(writer.client, "create_relations", {
-          namespace: "default",
+          namespace: "test",
           relations: [aliceManagesBob],
         });
       } finally {
@@ -133,7 +133,7 @@ describe("memory persistence over the protocol", () => {
 
       const { client } = await open();
       expect(
-        (await call(client, "read_graph", { namespace: "default" }))
+        (await call(client, "read_graph", { namespace: "test" }))
           .structuredContent,
       ).toEqual({
         entities: [alice, bob],
@@ -144,12 +144,12 @@ describe("memory persistence over the protocol", () => {
     it("drops unknown fields and the type tag when loading", async () => {
       await fs.writeFile(
         filePath,
-        '{"type":"entity","name":"Alice","entityType":"person","observations":[],"extra":1}\n' +
-          '{"type":"relation","from":"Alice","to":"Alice","relationType":"is","weight":2}\n',
+        '{"type":"entity","namespace":"test","name":"Alice","entityType":"person","observations":[],"extra":1}\n' +
+          '{"type":"relation","namespace":"test","from":"Alice","to":"Alice","relationType":"is","weight":2}\n',
       );
       const { client } = await open();
       expect(
-        (await call(client, "read_graph", { namespace: "default" }))
+        (await call(client, "read_graph", { namespace: "test" }))
           .structuredContent,
       ).toEqual({
         entities: [
@@ -157,7 +157,7 @@ describe("memory persistence over the protocol", () => {
             name: "Alice",
             entityType: "person",
             observations: [],
-            namespace: "default",
+            namespace: "test",
           },
         ],
         relations: [
@@ -165,7 +165,7 @@ describe("memory persistence over the protocol", () => {
             from: "Alice",
             to: "Alice",
             relationType: "is",
-            namespace: "default",
+            namespace: "test",
           },
         ],
       });
@@ -175,13 +175,13 @@ describe("memory persistence over the protocol", () => {
   describe("unreadable lines", () => {
     // The #4885 file, plus one line for each remaining loadGraph branch.
     const seedLines = [
-      '{"type":"entity","name":"Alice","entityType":"person","observations":["Works at Acme","Prefers email"]}',
-      '{"type":"entity","name":"Bob","entityType":"person","observations":["Allergic to penicillin","Lives in Haifa",null]}',
-      '{"type":"entity","name":"Project X","observations":["Deadline 2026-10-01","Budget 40k"]}',
-      '{"type":"relation","from":"Alice","to":"Bob","relationType":"manages"}',
-      '{"type":"relation","from":"Alice","to":"Bob"}',
-      '{"type":"entity","name":"Trunc',
-      '{"type":"entity","name":"A","entityType":"x","observations":[]}{"type":"entity","name":"B","entityType":"x","observations":[]}',
+      '{"type":"entity","namespace":"test","name":"Alice","entityType":"person","observations":["Works at Acme","Prefers email"]}',
+      '{"type":"entity","namespace":"test","name":"Bob","entityType":"person","observations":["Allergic to penicillin","Lives in Haifa",null]}',
+      '{"type":"entity","namespace":"test","name":"Project X","observations":["Deadline 2026-10-01","Budget 40k"]}',
+      '{"type":"relation","namespace":"test","from":"Alice","to":"Bob","relationType":"manages"}',
+      '{"type":"relation","namespace":"test","from":"Alice","to":"Bob"}',
+      '{"type":"entity","namespace":"test","name":"Trunc',
+      '{"type":"entity","namespace":"test","name":"A","entityType":"x","observations":[]}{"type":"entity","namespace":"test","name":"B","entityType":"x","observations":[]}',
       "42",
       "null",
       '{"type":"note","text":"unknown type"}',
@@ -198,7 +198,7 @@ describe("memory persistence over the protocol", () => {
       const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       const { client } = await open();
 
-      const result = await call(client, "read_graph", { namespace: "default" });
+      const result = await call(client, "read_graph", { namespace: "test" });
 
       expect(result.isError).toBeUndefined();
       expect(result.structuredContent).toEqual({
@@ -235,7 +235,7 @@ describe("memory persistence over the protocol", () => {
       const { client } = await open();
 
       const result = await call(client, "create_entities", {
-        namespace: "default",
+        namespace: "test",
         entities: [carol],
       });
 
@@ -243,14 +243,14 @@ describe("memory persistence over the protocol", () => {
       expect(result.structuredContent).toEqual({ entities: [carol] });
       expect(await readFileText(filePath)).toBe(
         [
-          '{"type":"entity","name":"Alice","entityType":"person","observations":["Works at Acme","Prefers email"]}',
-          '{"type":"entity","namespace":"default","name":"Carol","entityType":"person","observations":["New hire"]}',
-          '{"type":"relation","from":"Alice","to":"Bob","relationType":"manages"}',
-          '{"type":"entity","name":"Bob","entityType":"person","observations":["Allergic to penicillin","Lives in Haifa",null]}',
-          '{"type":"entity","name":"Project X","observations":["Deadline 2026-10-01","Budget 40k"]}',
-          '{"type":"relation","from":"Alice","to":"Bob"}',
-          '{"type":"entity","name":"Trunc',
-          '{"type":"entity","name":"A","entityType":"x","observations":[]}{"type":"entity","name":"B","entityType":"x","observations":[]}',
+          '{"type":"entity","namespace":"test","name":"Alice","entityType":"person","observations":["Works at Acme","Prefers email"]}',
+          '{"type":"entity","namespace":"test","name":"Carol","entityType":"person","observations":["New hire"]}',
+          '{"type":"relation","namespace":"test","from":"Alice","to":"Bob","relationType":"manages"}',
+          '{"type":"entity","namespace":"test","name":"Bob","entityType":"person","observations":["Allergic to penicillin","Lives in Haifa",null]}',
+          '{"type":"entity","namespace":"test","name":"Project X","observations":["Deadline 2026-10-01","Budget 40k"]}',
+          '{"type":"relation","namespace":"test","from":"Alice","to":"Bob"}',
+          '{"type":"entity","namespace":"test","name":"Trunc',
+          '{"type":"entity","namespace":"test","name":"A","entityType":"x","observations":[]}{"type":"entity","namespace":"test","name":"B","entityType":"x","observations":[]}',
           "42",
           "null",
           '{"type":"note","text":"unknown type"}',
@@ -259,7 +259,7 @@ describe("memory persistence over the protocol", () => {
       );
       // The kept lines stay out of the graph.
       expect(
-        (await call(client, "read_graph", { namespace: "default" }))
+        (await call(client, "read_graph", { namespace: "test" }))
           .structuredContent,
       ).toEqual({
         entities: [alice, carol],
@@ -288,7 +288,7 @@ describe("memory persistence over the protocol", () => {
         ["create_entities", { entities: [alice] }],
       ] as const) {
         const result = await call(client, name, {
-          namespace: "default",
+          namespace: "test",
           ...args,
         });
         expect(result.isError).toBe(true);
@@ -302,7 +302,7 @@ describe("memory persistence over the protocol", () => {
     it("reports a failed save as a tool error and keeps the committed file", async () => {
       const { client } = await openWithNamespace();
       await call(client, "create_entities", {
-        namespace: "default",
+        namespace: "test",
         entities: [alice],
       });
       const before = await readFileText(filePath);
@@ -311,7 +311,7 @@ describe("memory persistence over the protocol", () => {
         new Error("EXDEV: simulated rename failure"),
       );
       const result = await call(client, "create_entities", {
-        namespace: "default",
+        namespace: "test",
         entities: [bob],
       });
 
@@ -329,13 +329,13 @@ describe("memory persistence over the protocol", () => {
         new Error("ENOSPC: simulated full disk"),
       );
       const failed = await call(client, "create_entities", {
-        namespace: "default",
+        namespace: "test",
         entities: [alice],
       });
       expect(failed.isError).toBe(true);
 
       const retried = await call(client, "create_entities", {
-        namespace: "default",
+        namespace: "test",
         entities: [alice],
       });
       expect(retried.structuredContent).toEqual({ entities: [alice] });
@@ -364,7 +364,7 @@ describe("memory persistence over the protocol", () => {
     it("keeps a hardened graph file's mode across a save", async () => {
       const { client } = await openWithNamespace();
       await call(client, "create_entities", {
-        namespace: "default",
+        namespace: "test",
         entities: [alice],
       });
       // 0600 as in the issue, unless the umask already makes new files 0600;
@@ -374,7 +374,7 @@ describe("memory persistence over the protocol", () => {
       const writeFile = vi.spyOn(fs, "writeFile");
 
       await call(client, "create_entities", {
-        namespace: "default",
+        namespace: "test",
         entities: [bob],
       });
 
@@ -386,7 +386,7 @@ describe("memory persistence over the protocol", () => {
       );
       expect(await modeOf(filePath)).toBe(original);
       expect(
-        (await call(client, "read_graph", { namespace: "default" }))
+        (await call(client, "read_graph", { namespace: "test" }))
           .structuredContent,
       ).toEqual({
         entities: [alice, bob],
@@ -400,14 +400,14 @@ describe("memory persistence over the protocol", () => {
       async () => {
         const { client } = await openWithNamespace();
         await call(client, "create_entities", {
-          namespace: "default",
+          namespace: "test",
           entities: [alice],
         });
         await fs.chmod(filePath, 0o444);
         const before = await readFileText(filePath);
 
         const result = await call(client, "create_entities", {
-          namespace: "default",
+          namespace: "test",
           entities: [bob],
         });
 
@@ -430,7 +430,8 @@ describe("memory persistence over the protocol", () => {
     const seedEntity = { name: "Seed", entityType: "thing", observations: [] };
     await fs.writeFile(
       filePath,
-      JSON.stringify({ type: "entity", ...seedEntity }) + "\n",
+      JSON.stringify({ type: "entity", namespace: "test", ...seedEntity }) +
+        "\n",
     );
     const first = await open();
     const second = await connect(filePath);
@@ -451,21 +452,21 @@ describe("memory persistence over the protocol", () => {
         name: "From A",
         entityType: "thing",
         observations: [],
-        namespace: "default",
+        namespace: "test",
       };
       const b = {
         name: "From B",
         entityType: "thing",
         observations: [],
-        namespace: "default",
+        namespace: "test",
       };
       const [resultA, resultB] = await Promise.all([
         call(first.client, "create_entities", {
-          namespace: "default",
+          namespace: "test",
           entities: [a],
         }),
         call(second.client, "create_entities", {
-          namespace: "default",
+          namespace: "test",
           entities: [b],
         }),
       ]);
@@ -474,7 +475,7 @@ describe("memory persistence over the protocol", () => {
       expect(resultA.structuredContent).toEqual({ entities: [a] });
       expect(resultB.structuredContent).toEqual({ entities: [b] });
       const graph = (
-        await call(first.client, "read_graph", { namespace: "default" })
+        await call(first.client, "read_graph", { namespace: "test" })
       ).structuredContent as { entities: { name: string }[] };
       const names = graph.entities.map((e) => e.name);
       expect(names[0]).toBe("Seed");

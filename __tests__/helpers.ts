@@ -79,10 +79,10 @@ export function textOf(result: CallToolResult): string {
 }
 
 // An entity or relation as a tool returns it: the fixture plus its namespace
-// (the default one unless given), placed last as the server places it.
+// (the test one unless given), placed last as the server places it.
 export function inNs<T extends object>(
   item: T,
-  namespace = "default",
+  namespace = "test",
 ): T & { namespace: string } {
   return { ...item, namespace };
 }

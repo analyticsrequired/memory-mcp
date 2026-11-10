@@ -9,25 +9,25 @@ import { call, connect, makeTempGraph, Connection } from "./helpers.js";
 
 const URI = "memory://knowledge-graph";
 
-// The fixtures name the default namespace, so each is both an input (an item
-// may repeat the call's namespace) and exactly what the graph holds for it.
+// The fixtures are what the graph holds for the test namespace. Used as call
+// inputs, their own namespace member is ignored: the call's decides.
 const alice = {
   name: "Alice",
   entityType: "person",
   observations: ["a"],
-  namespace: "default",
+  namespace: "test",
 };
 const bob = {
   name: "Bob",
   entityType: "person",
   observations: ["b"],
-  namespace: "default",
+  namespace: "test",
 };
 const aliceKnowsBob = {
   from: "Alice",
   to: "Bob",
   relationType: "knows",
-  namespace: "default",
+  namespace: "test",
 };
 
 describe("knowledge-graph resource over the protocol", () => {
@@ -43,7 +43,7 @@ describe("knowledge-graph resource over the protocol", () => {
     cleanup = graph.cleanup;
     conn = await connect(filePath);
     client = conn.client;
-    await call(client, "create_namespace", { namespace: "default" });
+    await call(client, "create_namespace", { namespace: "test" });
     updates = [];
     client.setNotificationHandler(
       "notifications/resources/updated",
@@ -98,11 +98,11 @@ describe("knowledge-graph resource over the protocol", () => {
 
     it("reads the current graph as pretty-printed JSON", async () => {
       await call(client, "create_entities", {
-        namespace: "default",
+        namespace: "test",
         entities: [alice, bob],
       });
       await call(client, "create_relations", {
-        namespace: "default",
+        namespace: "test",
         relations: [aliceKnowsBob],
       });
 
@@ -135,7 +135,7 @@ describe("knowledge-graph resource over the protocol", () => {
 
     it("sends no update to a client that has not subscribed", async () => {
       await call(client, "create_entities", {
-        namespace: "default",
+        namespace: "test",
         entities: [alice],
       });
       await settle();
@@ -146,31 +146,31 @@ describe("knowledge-graph resource over the protocol", () => {
       await client.subscribeResource({ uri: URI });
 
       await call(client, "create_entities", {
-        namespace: "default",
+        namespace: "test",
         entities: [alice, bob],
       });
       await call(client, "create_relations", {
-        namespace: "default",
+        namespace: "test",
         relations: [aliceKnowsBob],
       });
       await call(client, "add_observations", {
-        namespace: "default",
+        namespace: "test",
         observations: [{ entityName: "Alice", contents: ["c"] }],
       });
       await call(client, "delete_observations", {
-        namespace: "default",
+        namespace: "test",
         deletions: [{ entityName: "Alice", observations: ["c"] }],
       });
       await call(client, "delete_relations", {
-        namespace: "default",
+        namespace: "test",
         relations: [aliceKnowsBob],
       });
       await call(client, "delete_entities", {
-        namespace: "default",
+        namespace: "test",
         entityNames: ["Bob"],
       });
       await call(client, "rename_namespace", {
-        namespace: "default",
+        namespace: "test",
         newNamespace: "renamed",
       });
       await call(client, "delete_namespace", { namespace: "renamed" });
@@ -182,7 +182,7 @@ describe("knowledge-graph resource over the protocol", () => {
     it("notifies even when a mutation changed nothing", async () => {
       await client.subscribeResource({ uri: URI });
       await call(client, "delete_entities", {
-        namespace: "default",
+        namespace: "test",
         entityNames: ["Nobody"],
       });
       await settle();
@@ -191,24 +191,24 @@ describe("knowledge-graph resource over the protocol", () => {
 
     it("does not notify for read-only tools or a failed mutation", async () => {
       await call(client, "create_entities", {
-        namespace: "default",
+        namespace: "test",
         entities: [alice],
       });
       await client.subscribeResource({ uri: URI });
 
-      await call(client, "read_graph", { namespace: "default" });
+      await call(client, "read_graph", { namespace: "test" });
       await call(client, "search_nodes", {
-        namespace: "default",
+        namespace: "test",
         query: "Alice",
       });
       await call(client, "open_nodes", {
-        namespace: "default",
+        namespace: "test",
         names: ["Alice"],
       });
       await call(client, "list_namespaces");
       await client.readResource({ uri: URI });
       const failed = await call(client, "create_relations", {
-        namespace: "default",
+        namespace: "test",
         relations: [{ from: "Alice", to: "Zed", relationType: "x" }],
       });
       const failedRename = await call(client, "rename_namespace", {
@@ -225,7 +225,7 @@ describe("knowledge-graph resource over the protocol", () => {
     it("does not notify a client subscribed only to another URI", async () => {
       await client.subscribeResource({ uri: "memory://something-else" });
       await call(client, "create_entities", {
-        namespace: "default",
+        namespace: "test",
         entities: [alice],
       });
       await settle();
@@ -235,12 +235,12 @@ describe("knowledge-graph resource over the protocol", () => {
     it("stops notifying after unsubscribe", async () => {
       await client.subscribeResource({ uri: URI });
       await call(client, "create_entities", {
-        namespace: "default",
+        namespace: "test",
         entities: [alice],
       });
       await client.unsubscribeResource({ uri: URI });
       await call(client, "create_entities", {
-        namespace: "default",
+        namespace: "test",
         entities: [bob],
       });
       await settle();
@@ -252,7 +252,7 @@ describe("knowledge-graph resource over the protocol", () => {
       try {
         await other.client.subscribeResource({ uri: URI });
         await call(client, "create_entities", {
-          namespace: "default",
+          namespace: "test",
           entities: [alice],
         });
         await settle();
@@ -278,7 +278,7 @@ describe("knowledge-graph resource over the protocol", () => {
       await client.subscribeResource({ uri: URI });
 
       const result = await call(client, "create_entities", {
-        namespace: "default",
+        namespace: "test",
         entities: [alice],
       });
       await settle();

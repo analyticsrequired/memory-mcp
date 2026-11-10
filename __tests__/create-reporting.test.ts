@@ -21,8 +21,8 @@ describe("create reporting", () => {
       `test-create-reporting-${Date.now()}-${Math.random().toString(16).slice(2)}.jsonl`,
     );
     manager = new KnowledgeGraphManager(testFilePath);
-    await manager.createNamespace("default");
-    await manager.createEntities("default", [
+    await manager.createNamespace("test");
+    await manager.createEntities("test", [
       {
         name: "Alice",
         entityType: "person",
@@ -48,7 +48,7 @@ describe("create reporting", () => {
       },
       { name: "Bob", entityType: "person", observations: [] },
     ];
-    const created = await manager.createEntities("default", requested);
+    const created = await manager.createEntities("test", requested);
     expect(created.map((e) => e.name)).toEqual(["Bob"]);
     expect(skippedEntityNames(requested, created)).toEqual(["Alice"]);
   });
@@ -58,7 +58,7 @@ describe("create reporting", () => {
       { name: "Carol", entityType: "person", observations: ["first"] },
       { name: "Carol", entityType: "person", observations: ["second"] },
     ];
-    const created = await manager.createEntities("default", requested);
+    const created = await manager.createEntities("test", requested);
     expect(skippedEntityNames(requested, created)).toEqual(["Carol"]);
   });
 
@@ -66,7 +66,7 @@ describe("create reporting", () => {
     const requested: EntityInput[] = [
       { name: "Dan", entityType: "person", observations: [] },
     ];
-    const created = await manager.createEntities("default", requested);
+    const created = await manager.createEntities("test", requested);
     expect(skippedEntityNames(requested, created)).toEqual([]);
   });
 

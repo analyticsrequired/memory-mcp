@@ -4,8 +4,8 @@ import path from "path";
 import { FileLockOptions, withFileLock } from "@/memfile.js";
 import {
   KnowledgeGraph,
-  StoredEntitySchema,
-  StoredRelationSchema,
+  EntitySchema,
+  RelationSchema,
   NamespaceRecordSchema,
   Entity,
   EntityInput,
@@ -25,8 +25,10 @@ import { RESOURCE_URI } from "@/tools.js";
 // created explicitly (createNamespace) and an operation on one that does not
 // exist fails, so a mistyped name is an error rather than an empty graph.
 // A namespace exists once created, and also while any stored entity or
-// relation names it, which is how the records of a file written before
-// namespaces existed (the legacy namespace) have a namespace at all.
+// relation names it, so a file edited by hand to hold records in a namespace
+// that has no namespace record of its own is still usable. Every stored entity
+// and relation must name its namespace: one that does not is unreadable, like
+// any other invalid line, and is skipped and written back unchanged.
 
 function namespaceExists(graph: KnowledgeGraph, namespace: string): boolean {
   return (
@@ -91,19 +93,6 @@ export class KnowledgeGraphManager {
   // delete_observations) keeps its object, so keeps them too.
   private extraFields = new WeakMap<object, Record<string, unknown>>();
 
-  // The loaded entities and relations stored without a namespace member, keyed
-  // like extraFields. A record is written with a namespace member, except one
-  // of these: a write never adds a member to a record that was stored without
-  // one, so that every record a write did not delete is kept as it was found.
-  private legacyRecords = new WeakSet<object>();
-
-  // A record's namespace member as saveGraph writes it.
-  private namespaceMember(record: Entity | Relation): { namespace?: string } {
-    return this.legacyRecords.has(record)
-      ? {}
-      : { namespace: record.namespace };
-  }
-
   private async withLock<T>(operation: () => Promise<T>): Promise<T> {
     const locked = () =>
       withFileLock(`${this.memoryFilePath}.lock`, operation, this.lockOptions);
@@ -166,10 +155,9 @@ export class KnowledgeGraphManager {
 
         const record = item as Record<string, unknown>;
         if (record.type === "entity") {
-          const parsed = StoredEntitySchema.safeParse(item);
+          const parsed = EntitySchema.safeParse(item);
           if (parsed.success) {
-            this.keepNamespaceMember(parsed.data, record);
-            this.keepExtraFields(parsed.data, record, StoredEntitySchema.shape);
+            this.keepExtraFields(parsed.data, record, EntitySchema.shape);
             graph.entities.push(parsed.data);
           } else {
             unreadable.push(line);
@@ -181,14 +169,9 @@ export class KnowledgeGraphManager {
             );
           }
         } else if (record.type === "relation") {
-          const parsed = StoredRelationSchema.safeParse(item);
+          const parsed = RelationSchema.safeParse(item);
           if (parsed.success) {
-            this.keepNamespaceMember(parsed.data, record);
-            this.keepExtraFields(
-              parsed.data,
-              record,
-              StoredRelationSchema.shape,
-            );
+            this.keepExtraFields(parsed.data, record, RelationSchema.shape);
             graph.relations.push(parsed.data);
           } else {
             unreadable.push(line);
@@ -238,16 +221,6 @@ export class KnowledgeGraphManager {
     }
   }
 
-  // Note that a valid stored record had no namespace member, for namespaceMember.
-  private keepNamespaceMember(
-    parsed: object,
-    record: Record<string, unknown>,
-  ): void {
-    if (!Object.hasOwn(record, "namespace")) {
-      this.legacyRecords.add(parsed);
-    }
-  }
-
   // Record the members of a valid stored record that are neither its type nor
   // a field of its schema, for saveGraph to write back. Object.fromEntries
   // defines each key as an own property, so even a "__proto__" member stays
@@ -283,7 +256,7 @@ export class KnowledgeGraphManager {
       ...graph.entities.map((e) =>
         JSON.stringify({
           type: "entity",
-          ...this.namespaceMember(e),
+          namespace: e.namespace,
           name: e.name,
           entityType: e.entityType,
           observations: e.observations,
@@ -293,7 +266,7 @@ export class KnowledgeGraphManager {
       ...graph.relations.map((r) =>
         JSON.stringify({
           type: "relation",
-          ...this.namespaceMember(r),
+          namespace: r.namespace,
           from: r.from,
           to: r.to,
           relationType: r.relationType,
@@ -616,11 +589,8 @@ export class KnowledgeGraphManager {
       graph.namespaces
         .filter((n) => n.name === namespace)
         .forEach((n) => (n.name = newNamespace));
-      // The rename rewrites these records anyway, so they take the current
-      // form, with a namespace member.
       [...entities, ...relations].forEach((record) => {
         record.namespace = newNamespace;
-        this.legacyRecords.delete(record);
       });
       await this.saveGraph(graph, unreadable);
       return {
