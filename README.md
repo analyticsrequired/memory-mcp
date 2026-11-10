@@ -1,6 +1,6 @@
 # memory-mcp
 
-A basic implementation of persistent memory using a local knowledge graph. This lets agent harnesses remember information across chats.
+A basic implementation of persistent, namespaced memory using a local knowledge graph. This lets agent harnesses remember information across chats.
 
 This is a fork of: https://github.com/modelcontextprotocol/servers/tree/main/src/memory
 
@@ -10,9 +10,10 @@ This is a fork of: https://github.com/modelcontextprotocol/servers/tree/main/src
 
 Entities are the primary nodes in the knowledge graph. Each entity has:
 
-- A unique name (identifier)
+- A name that identifies it within its namespace
 - An entity type (e.g., "person", "organization", "event")
 - A list of observations
+- A namespace (see [Namespaces](#namespaces)), which the server sets from the `namespace` input of the call that creates the entity
 
 Example:
 
@@ -20,13 +21,14 @@ Example:
 {
   "name": "John_Smith",
   "entityType": "person",
-  "observations": ["Speaks fluent Spanish"]
+  "observations": ["Speaks fluent Spanish"],
+  "namespace": "default"
 }
 ```
 
 ### Relations
 
-Relations define directed connections between entities. They are always stored in active voice and describe how entities interact or relate to each other.
+Relations define directed connections between entities of the same namespace. They are always stored in active voice and describe how entities interact or relate to each other. A relation has the namespace of the entities it connects, set from the call that creates it.
 
 Example:
 
@@ -34,7 +36,8 @@ Example:
 {
   "from": "John_Smith",
   "to": "Anthropic",
-  "relationType": "works_at"
+  "relationType": "works_at",
+  "namespace": "default"
 }
 ```
 
@@ -60,9 +63,25 @@ Example:
 }
 ```
 
+### Namespaces
+
+A namespace keeps one set of entities and relations apart from another in the same memory file, for example one per project, story or user. Every entity and relation belongs to exactly one namespace.
+
+- **Isolation.** An entity is identified by its namespace and name together, so `Alice` can exist in several namespaces as different entities. A relation connects entities of its own namespace only; relating to an entity that exists only in another namespace fails as not found.
+- **Explicit, with no default.** Every tool that works inside a namespace requires a `namespace` input, and the model has to name one on every call. There is no default namespace and an omitted `namespace` is a validation error, never a fallback.
+- **Namespaces are created, not implied.** `create_namespace` makes one; every other tool fails with an error that points at `create_namespace` and `list_namespaces` if the namespace it names does not exist, for reads as well as writes. A write never creates a namespace as a side effect, so a misspelled name is caught instead of silently starting a second graph. `create_namespace` fails if the namespace already exists, which tells the model to reuse it. A namespace stays until `delete_namespace`, even when it is empty.
+- **One namespace per call, applied by the server.** A call names its namespace once. The `entities`, `relations`, `observations` and `deletions` in it are `Omit<Entity, "namespace">` and the like: they have no `namespace` of their own, and the server puts the call's namespace on each entity and relation it creates. The entities and relations a tool returns do carry their `namespace`. A `namespace` member written on an input item is not part of the schema and is ignored, so the call's `namespace` always decides.
+- **Names.** A namespace is a case-sensitive string of 1 to 256 characters, matched exactly.
+- **Reads stay inside one namespace.** `read_graph`, `search_nodes` and `open_nodes` read the namespace they are given; there is no way to read "all of them" through a tool. The [knowledge-graph resource](#resources) is the one place that serves every namespace.
+- **Whole namespaces.** `rename_namespace` and `delete_namespace` act on a namespace and everything in it at once. Renaming never merges into an existing namespace.
+
+In the memory file, each namespace is a `{"type":"namespace","name":…}` line, written before the entities and relations, and every entity and relation line carries a `namespace` member. A file written before namespaces existed (records with no `namespace`) is read as the single namespace `default`, which then exists like any other and can be used, renamed or deleted; records read this way are written back exactly as they were until they are changed, and everything the server writes new has the member. A record whose `namespace` is not a non-empty string, or a namespace line with no valid `name`, is treated like any other unreadable line: it is skipped and written back unchanged.
+
 ## API
 
 ### Tools
+
+Every tool except the namespace-management tools (`create_namespace`, `list_namespaces`, `rename_namespace`, `delete_namespace`) takes a required `namespace` input (a string of 1 to 256 characters, naming a namespace that exists) and works only inside that namespace; see [Namespaces](#namespaces). It is not repeated in each tool below. The entities and relations a tool returns carry their `namespace`; the ones a tool takes do not.
 
 - **create_entities**
   - Create multiple new entities in the knowledge graph
@@ -71,7 +90,7 @@ Example:
       - `name` (string): Entity identifier
       - `entityType` (string): Type classification
       - `observations` (string[]): Associated observations
-  - Ignores entities with existing names (and repeats of a name earlier in the same call); their observations are not added
+  - Ignores entities whose name already exists in the namespace (and repeats of a name earlier in the same call); their observations are not added. The same name in another namespace is a different entity
   - Returns the created entities. When any were skipped, the structured result also lists their names in `skipped`, and a second text item says which were skipped (use `add_observations` to extend an existing entity)
 
 - **create_relations**
@@ -82,7 +101,7 @@ Example:
       - `to` (string): Target entity name
       - `relationType` (string): Relationship type in active voice
   - Skips duplicate relations
-  - Fails if either the source or target entity doesn't exist
+  - Fails if either the source or target entity doesn't exist in the namespace; the error names the namespace
 
 - **add_observations**
   - Add new observations to existing entities
@@ -91,13 +110,13 @@ Example:
       - `entityName` (string): Target entity
       - `contents` (string[]): New observations to add
   - Returns added observations per entity
-  - Fails if entity doesn't exist
+  - Fails if entity doesn't exist in the namespace
 
 - **delete_entities**
   - Remove entities and their relations
   - Input: `entityNames` (string[])
-  - Cascading deletion of associated relations
-  - No error if an entity doesn't exist; the response reports which names were not found
+  - Cascading deletion of associated relations, within the namespace
+  - No error if an entity doesn't exist in the namespace; the response reports which names were not found
 
 - **delete_observations**
   - Remove specific observations from entities
@@ -117,11 +136,11 @@ Example:
   - No error if a relation doesn't exist; the response reports how many were deleted
 
 - **read_graph**
-  - Read the entire knowledge graph
+  - Read the entire knowledge graph of one namespace
   - Optional input:
     - `entityTypes` (string[], at least one): return only entities of these types, and the relations that touch one of them
     - `observationLimit` (integer, 0 or more): see below
-  - Returns complete graph structure with all entities and relations
+  - Returns complete graph structure with all entities and relations of the namespace
   - With `observationLimit`, each entity carries at most that many observations (the first ones, in the order they were added) and an `observationCount` with its total. `observationLimit: 0` returns names, types and counts only: a cheap overview of a large graph, from which `open_nodes` reads the entities you need in full
 
 - **search_nodes**
@@ -145,13 +164,35 @@ Example:
   - Silently skips non-existent nodes
   - Optional input: `observationLimit` (integer, 0 or more), as for `read_graph`
 
+- **create_namespace**
+  - Create a namespace, where entities and relations live
+  - Input: `namespace` (string, required): the name to create
+  - Fails if the namespace already exists, so the model reuses it (see `list_namespaces`) instead of creating it again
+
+- **list_namespaces**
+  - List every namespace, empty ones included
+  - Input: none
+  - Returns each namespace with its `entityCount` and `relationCount`, in name order; a new graph has none
+
+- **rename_namespace**
+  - Move every entity and relation of a namespace to a new name
+  - Input: `namespace` (string, required): the current name; `newNamespace` (string, required): the new name
+  - Fails if the namespace does not exist, if the new name is the current one, or if the new name already exists: namespaces are never merged, so delete the target or choose another name
+  - Returns how many entities and relations moved
+
+- **delete_namespace**
+  - Delete a namespace with every entity and relation in it; this cannot be undone
+  - Input: `namespace` (string, required)
+  - No error if the namespace does not exist; the response reports 0 deleted
+  - Returns how many entities and relations were deleted
+
 ### Resources
 
 - **knowledge-graph** (`memory://knowledge-graph`)
   - The full knowledge graph as a readable MCP Resource
   - MIME type: `application/json`
-  - Returns the same shape as `read_graph` (entities and relations)
-  - Mutation tools (`create_entities`, `create_relations`, `add_observations`, `delete_entities`, `delete_observations`, `delete_relations`) emit `notifications/resources/updated` for this URI, so subscribed clients see live changes
+  - Returns the same shape as `read_graph` (entities and relations), but for every namespace at once: each entity and relation carries its `namespace`. A namespace with nothing in it shows up only in `list_namespaces`
+  - Mutation tools (`create_entities`, `create_relations`, `add_observations`, `delete_entities`, `delete_observations`, `delete_relations`, `create_namespace`, `rename_namespace`, `delete_namespace`) emit `notifications/resources/updated` for this URI, so subscribed clients see live changes
   - How a client subscribes depends on its protocol version: a 2026-07-28 client names the URI in the `resourceSubscriptions` of its `subscriptions/listen` request and gets the updates on that stream; a 2025-era client calls `resources/subscribe`
 
 ## Protocol versions
@@ -336,7 +377,7 @@ On Windows, use:
 
 ### System Prompt
 
-The prompt for utilizing memory depends on the use case. Changing the prompt will help the model determine the frequency and types of memories created.
+The prompt for utilizing memory depends on the use case. Changing the prompt will help the model determine the frequency and types of memories created. If you use [namespaces](#namespaces), tell the model which one to work in (for example "use the namespace `project-x` for every memory tool call"), since every call has to name one and the model cannot guess which. Ask it to run `list_namespaces` first and to `create_namespace` only when the one you want is missing.
 
 Here is an example prompt for chat personalization. You could use this prompt in the "Custom Instructions" field of a [Claude.ai Project](https://www.anthropic.com/news/projects).
 

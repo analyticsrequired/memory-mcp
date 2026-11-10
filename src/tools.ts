@@ -2,17 +2,30 @@ import { McpServer } from "@modelcontextprotocol/server";
 import z from "zod";
 import {
   EntitySchema,
+  EntityInputSchema,
   RelationSchema,
+  RelationInputSchema,
+  NamespaceInputSchema,
+  NamespaceSchema,
+  NamespaceSummarySchema,
   ReadGraphEntityTypesSchema,
   ObservationLimitSchema,
   ReadEntitySchema,
-  Entity,
   SearchNodesQuerySchema,
   SearchNodesLimitSchema,
 } from "@/schemas.js";
 import { KnowledgeGraphManager } from "@/graph.js";
 
 export const RESOURCE_URI = "memory://knowledge-graph";
+
+// What rename_namespace and delete_namespace return: the status every
+// mutation tool reports, with how many entities and relations it affected.
+const NamespaceChangeOutputSchema = z.object({
+  success: z.boolean(),
+  message: z.string(),
+  entityCount: z.number().int().min(0),
+  relationCount: z.number().int().min(0),
+});
 
 export const registerTools = (
   server: McpServer,
@@ -46,7 +59,8 @@ export const registerTools = (
       description:
         "Create multiple new entities in the knowledge graph. An entity whose name already exists, or repeats an earlier entity in the same call, is skipped and its observations are not added; the result lists the skipped names in `skipped`. Use add_observations to add observations to an existing entity.",
       inputSchema: z.object({
-        entities: z.array(EntitySchema),
+        namespace: NamespaceInputSchema,
+        entities: z.array(EntityInputSchema),
       }),
       outputSchema: z.object({
         entities: z.array(EntitySchema),
@@ -60,8 +74,11 @@ export const registerTools = (
         openWorldHint: false,
       },
     },
-    async ({ entities }) => {
-      const result = await knowledgeGraphManager.createEntities(entities);
+    async ({ namespace, entities }) => {
+      const result = await knowledgeGraphManager.createEntities(
+        namespace,
+        entities,
+      );
       notifyGraphUpdated();
       // Existing names are ignored (see README). Say so: otherwise an agent
       // reads the response as its observations having been stored.
@@ -93,7 +110,8 @@ export const registerTools = (
       description:
         "Create multiple new relations between entities in the knowledge graph. Relations should be in active voice",
       inputSchema: z.object({
-        relations: z.array(RelationSchema),
+        namespace: NamespaceInputSchema,
+        relations: z.array(RelationInputSchema),
       }),
       outputSchema: z.object({
         relations: z.array(RelationSchema),
@@ -105,8 +123,11 @@ export const registerTools = (
         openWorldHint: false,
       },
     },
-    async ({ relations }) => {
-      const result = await knowledgeGraphManager.createRelations(relations);
+    async ({ namespace, relations }) => {
+      const result = await knowledgeGraphManager.createRelations(
+        namespace,
+        relations,
+      );
       notifyGraphUpdated();
       return {
         content: [
@@ -125,6 +146,7 @@ export const registerTools = (
       description:
         "Add new observations to existing entities in the knowledge graph",
       inputSchema: z.object({
+        namespace: NamespaceInputSchema,
         observations: z.array(
           z.object({
             entityName: z
@@ -151,8 +173,11 @@ export const registerTools = (
         openWorldHint: false,
       },
     },
-    async ({ observations }) => {
-      const result = await knowledgeGraphManager.addObservations(observations);
+    async ({ namespace, observations }) => {
+      const result = await knowledgeGraphManager.addObservations(
+        namespace,
+        observations,
+      );
       notifyGraphUpdated();
       return {
         content: [
@@ -171,6 +196,7 @@ export const registerTools = (
       description:
         "Delete multiple entities and their associated relations from the knowledge graph",
       inputSchema: z.object({
+        namespace: NamespaceInputSchema,
         entityNames: z
           .array(z.string())
           .describe("An array of entity names to delete"),
@@ -186,9 +212,11 @@ export const registerTools = (
         openWorldHint: false,
       },
     },
-    async ({ entityNames }) => {
-      const { deleted, notFound } =
-        await knowledgeGraphManager.deleteEntities(entityNames);
+    async ({ namespace, entityNames }) => {
+      const { deleted, notFound } = await knowledgeGraphManager.deleteEntities(
+        namespace,
+        entityNames,
+      );
       notifyGraphUpdated();
       const message =
         notFound.length === 0
@@ -209,6 +237,7 @@ export const registerTools = (
       description:
         "Delete specific observations from entities in the knowledge graph",
       inputSchema: z.object({
+        namespace: NamespaceInputSchema,
         deletions: z.array(
           z.object({
             entityName: z
@@ -231,9 +260,9 @@ export const registerTools = (
         openWorldHint: false,
       },
     },
-    async ({ deletions }) => {
+    async ({ namespace, deletions }) => {
       const { deletedCount, missingEntities } =
-        await knowledgeGraphManager.deleteObservations(deletions);
+        await knowledgeGraphManager.deleteObservations(namespace, deletions);
       notifyGraphUpdated();
       const requested = deletions.reduce(
         (total, d) => total + d.observations.length,
@@ -260,8 +289,9 @@ export const registerTools = (
       title: "Delete Relations",
       description: "Delete multiple relations from the knowledge graph",
       inputSchema: z.object({
+        namespace: NamespaceInputSchema,
         relations: z
-          .array(RelationSchema)
+          .array(RelationInputSchema)
           .describe("An array of relations to delete"),
       }),
       outputSchema: z.object({
@@ -275,9 +305,11 @@ export const registerTools = (
         openWorldHint: false,
       },
     },
-    async ({ relations }) => {
-      const { deletedCount } =
-        await knowledgeGraphManager.deleteRelations(relations);
+    async ({ namespace, relations }) => {
+      const { deletedCount } = await knowledgeGraphManager.deleteRelations(
+        namespace,
+        relations,
+      );
       notifyGraphUpdated();
       const message =
         deletedCount === relations.length
@@ -298,6 +330,7 @@ export const registerTools = (
       description:
         "Read the entire knowledge graph: every entity with its observations, and every relation. The result grows with the graph, so use this only when you need everything; prefer search_nodes to find entities by keyword and open_nodes to read entities whose names you know.",
       inputSchema: z.object({
+        namespace: NamespaceInputSchema,
         entityTypes: ReadGraphEntityTypesSchema,
         observationLimit: ObservationLimitSchema,
       }),
@@ -312,8 +345,8 @@ export const registerTools = (
         openWorldHint: false,
       },
     },
-    async ({ entityTypes, observationLimit }) => {
-      const graph = await knowledgeGraphManager.readGraph({
+    async ({ namespace, entityTypes, observationLimit }) => {
+      const graph = await knowledgeGraphManager.readGraph(namespace, {
         entityTypes,
         observationLimit,
       });
@@ -334,6 +367,7 @@ export const registerTools = (
       description:
         "Search the knowledge graph for entities whose name, type or observations contain the query (case-insensitive). Use this when you have a keyword, a topic or part of a name but not the exact entity names. Prefer open_nodes when you already know the exact names, and use read_graph only when you need the whole graph. Returns the matching entities and every relation that touches one of them.",
       inputSchema: z.object({
+        namespace: NamespaceInputSchema,
         query: SearchNodesQuerySchema,
         limit: SearchNodesLimitSchema,
         observationLimit: ObservationLimitSchema,
@@ -349,8 +383,8 @@ export const registerTools = (
         openWorldHint: false,
       },
     },
-    async ({ query, limit, observationLimit }) => {
-      const graph = await knowledgeGraphManager.searchNodes(query, {
+    async ({ namespace, query, limit, observationLimit }) => {
+      const graph = await knowledgeGraphManager.searchNodes(namespace, query, {
         limit,
         observationLimit,
       });
@@ -371,6 +405,7 @@ export const registerTools = (
       description:
         "Retrieve specific entities by their exact names, with every relation that touches one of them. Use this when you already know the names (from the conversation, or from an earlier search_nodes or read_graph result); it is the cheapest way to read entities you can name. Prefer search_nodes when you only have a keyword or part of a name. Names that do not exist are skipped.",
       inputSchema: z.object({
+        namespace: NamespaceInputSchema,
         names: z
           .array(z.string())
           .describe("An array of entity names to retrieve"),
@@ -387,8 +422,8 @@ export const registerTools = (
         openWorldHint: false,
       },
     },
-    async ({ names, observationLimit }) => {
-      const graph = await knowledgeGraphManager.openNodes(names, {
+    async ({ namespace, names, observationLimit }) => {
+      const graph = await knowledgeGraphManager.openNodes(namespace, names, {
         observationLimit,
       });
       return {
@@ -399,16 +434,163 @@ export const registerTools = (
       };
     },
   );
+
+  // Register create_namespace tool
+  server.registerTool(
+    "create_namespace",
+    {
+      title: "Create Namespace",
+      description:
+        "Create a namespace, which is where entities and relations live: every other tool takes the namespace to work in, and it must exist. Fails if a namespace of that name already exists, so reuse the existing one (see list_namespaces) rather than creating it again. Names are case-sensitive.",
+      inputSchema: z.object({
+        namespace: NamespaceSchema.describe(
+          "The name of the namespace to create",
+        ),
+      }),
+      outputSchema: z.object({
+        success: z.boolean(),
+        message: z.string(),
+      }),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ namespace }) => {
+      await knowledgeGraphManager.createNamespace(namespace);
+      notifyGraphUpdated();
+      const message = `Created namespace ${namespace}`;
+      return {
+        content: [{ type: "text" as const, text: message }],
+        structuredContent: { success: true, message },
+      };
+    },
+  );
+
+  // Register list_namespaces tool
+  server.registerTool(
+    "list_namespaces",
+    {
+      title: "List Namespaces",
+      description:
+        "List the namespaces of the knowledge graph, each with its number of entities and relations (0 for a namespace nothing is in yet). Use this to find out which namespaces exist before reading from or writing to one; every other tool works inside the namespace named by its required `namespace` input, which must exist.",
+      inputSchema: z.object({}),
+      outputSchema: z.object({
+        namespaces: z.array(NamespaceSummarySchema),
+      }),
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async () => {
+      const namespaces = await knowledgeGraphManager.listNamespaces();
+      return {
+        content: [
+          { type: "text" as const, text: JSON.stringify(namespaces, null, 2) },
+        ],
+        structuredContent: { namespaces },
+      };
+    },
+  );
+
+  // Register rename_namespace tool
+  server.registerTool(
+    "rename_namespace",
+    {
+      title: "Rename Namespace",
+      description:
+        "Rename a namespace: every entity and relation in it moves to the new name. Fails if the namespace does not exist, or if the new name already exists, since namespaces are never merged.",
+      inputSchema: z.object({
+        namespace: NamespaceSchema.describe(
+          "The current name of the namespace to rename; it must exist",
+        ),
+        newNamespace: NamespaceSchema.describe(
+          "The new name of the namespace; it must not exist",
+        ),
+      }),
+      outputSchema: NamespaceChangeOutputSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+    },
+    async ({ namespace, newNamespace }) => {
+      const { entityCount, relationCount } =
+        await knowledgeGraphManager.renameNamespace(namespace, newNamespace);
+      notifyGraphUpdated();
+      const message = `Renamed namespace ${namespace} to ${newNamespace}: moved ${entityCount} ${entityCount === 1 ? "entity" : "entities"} and ${relationCount} ${relationCount === 1 ? "relation" : "relations"}`;
+      return {
+        content: [{ type: "text" as const, text: message }],
+        structuredContent: {
+          success: true,
+          message,
+          entityCount,
+          relationCount,
+        },
+      };
+    },
+  );
+
+  // Register delete_namespace tool
+  server.registerTool(
+    "delete_namespace",
+    {
+      title: "Delete Namespace",
+      description:
+        "Delete a namespace with every entity and relation in it. This cannot be undone. A namespace that does not exist is not an error; the response reports 0 deleted.",
+      inputSchema: z.object({
+        namespace: NamespaceSchema.describe(
+          "The namespace to delete, with everything in it",
+        ),
+      }),
+      outputSchema: NamespaceChangeOutputSchema,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ namespace }) => {
+      const { entityCount, relationCount } =
+        await knowledgeGraphManager.deleteNamespace(namespace);
+      notifyGraphUpdated();
+      const message =
+        entityCount === 0 && relationCount === 0
+          ? `Namespace ${namespace} does not exist or holds nothing, so nothing was deleted`
+          : `Deleted namespace ${namespace}: ${entityCount} ${entityCount === 1 ? "entity" : "entities"} and ${relationCount} ${relationCount === 1 ? "relation" : "relations"}`;
+      return {
+        content: [{ type: "text" as const, text: message }],
+        structuredContent: {
+          success: true,
+          message,
+          entityCount,
+          relationCount,
+        },
+      };
+    },
+  );
 };
 
 // Names of requested entities that createEntities did not create: the name
-// already existed, or repeated earlier in the same batch. createEntities
-// returns the created entities themselves, so identity tells them apart.
+// already existed in the namespace, or repeated earlier in the same batch.
+// createEntities keeps the first request of each new name, so a request is
+// skipped unless it is the first of a name that was created.
 export function skippedEntityNames(
-  requested: Entity[],
-  created: Entity[],
+  requested: { name: string }[],
+  created: { name: string }[],
 ): string[] {
-  return requested.filter((e) => !created.includes(e)).map((e) => e.name);
+  const awaitingFirst = new Set(created.map((e) => e.name));
+  return requested
+    .filter((e) => !awaitingFirst.delete(e.name))
+    .map((e) => e.name);
 }
 
 // Text telling the agent which entities create_entities skipped.

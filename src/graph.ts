@@ -4,15 +4,61 @@ import path from "path";
 import { FileLockOptions, withFileLock } from "@/memfile.js";
 import {
   KnowledgeGraph,
-  EntitySchema,
-  RelationSchema,
+  StoredEntitySchema,
+  StoredRelationSchema,
+  NamespaceRecordSchema,
   Entity,
+  EntityInput,
   Relation,
+  RelationInput,
+  NamespaceSummary,
 } from "@/schemas.js";
 import { McpServer } from "@modelcontextprotocol/server";
 import { RESOURCE_URI } from "@/tools.js";
 
-// The KnowledgeGraphManager class contains all operations to interact with the knowledge graph
+// The KnowledgeGraphManager class contains all operations to interact with the knowledge graph.
+//
+// Every entity and relation belongs to one namespace, and a namespace is a
+// closed world: an entity is identified by its namespace and name together,
+// and a relation connects entities of its own namespace only. Every operation
+// is given the namespace it works in; none has a default. A namespace is
+// created explicitly (createNamespace) and an operation on one that does not
+// exist fails, so a mistyped name is an error rather than an empty graph.
+// A namespace exists once created, and also while any stored entity or
+// relation names it, which is how the records of a file written before
+// namespaces existed (the legacy namespace) have a namespace at all.
+
+function namespaceExists(graph: KnowledgeGraph, namespace: string): boolean {
+  return (
+    graph.namespaces.some((n) => n.name === namespace) ||
+    graph.entities.some((e) => e.namespace === namespace) ||
+    graph.relations.some((r) => r.namespace === namespace)
+  );
+}
+
+// Fail unless the namespace exists, saying how to find or make one.
+function requireNamespace(graph: KnowledgeGraph, namespace: string): void {
+  if (!namespaceExists(graph, namespace)) {
+    throw new Error(
+      `Namespace ${namespace} does not exist; create it with create_namespace, or list the existing ones with list_namespaces`,
+    );
+  }
+}
+
+function entityNotFound(name: string, namespace: string): Error {
+  return new Error(
+    `Entity with name ${name} not found in namespace ${namespace}`,
+  );
+}
+
+// The entities and relations of one namespace.
+function inNamespace(graph: KnowledgeGraph, namespace: string): KnowledgeGraph {
+  return {
+    namespaces: graph.namespaces,
+    entities: graph.entities.filter((e) => e.namespace === namespace),
+    relations: graph.relations.filter((r) => r.namespace === namespace),
+  };
+}
 
 export class KnowledgeGraphManager {
   constructor(
@@ -45,6 +91,19 @@ export class KnowledgeGraphManager {
   // delete_observations) keeps its object, so keeps them too.
   private extraFields = new WeakMap<object, Record<string, unknown>>();
 
+  // The loaded entities and relations stored without a namespace member, keyed
+  // like extraFields. A record is written with a namespace member, except one
+  // of these: a write never adds a member to a record that was stored without
+  // one, so that every record a write did not delete is kept as it was found.
+  private legacyRecords = new WeakSet<object>();
+
+  // A record's namespace member as saveGraph writes it.
+  private namespaceMember(record: Entity | Relation): { namespace?: string } {
+    return this.legacyRecords.has(record)
+      ? {}
+      : { namespace: record.namespace };
+  }
+
   private async withLock<T>(operation: () => Promise<T>): Promise<T> {
     const locked = () =>
       withFileLock(`${this.memoryFilePath}.lock`, operation, this.lockOptions);
@@ -63,6 +122,13 @@ export class KnowledgeGraphManager {
     return (await this.loadGraphWithUnreadable()).graph;
   }
 
+  // The graph of one namespace, which must exist.
+  private async loadNamespace(namespace: string): Promise<KnowledgeGraph> {
+    const graph = await this.loadGraph();
+    requireNamespace(graph, namespace);
+    return inNamespace(graph, namespace);
+  }
+
   // Lines that can't be read (malformed JSON, entries that fail validation,
   // unknown record types) stay out of the in-memory graph, but mutations pass
   // them back to saveGraph so they are written out unchanged. Otherwise the
@@ -75,7 +141,11 @@ export class KnowledgeGraphManager {
     try {
       const data = await fs.readFile(this.memoryFilePath, "utf-8");
       const lines = data.split("\n").filter((line) => line.trim() !== "");
-      const graph: KnowledgeGraph = { entities: [], relations: [] };
+      const graph: KnowledgeGraph = {
+        namespaces: [],
+        entities: [],
+        relations: [],
+      };
       const unreadable: string[] = [];
 
       for (const line of lines) {
@@ -96,9 +166,10 @@ export class KnowledgeGraphManager {
 
         const record = item as Record<string, unknown>;
         if (record.type === "entity") {
-          const parsed = EntitySchema.safeParse(item);
+          const parsed = StoredEntitySchema.safeParse(item);
           if (parsed.success) {
-            this.keepExtraFields(parsed.data, record, EntitySchema.shape);
+            this.keepNamespaceMember(parsed.data, record);
+            this.keepExtraFields(parsed.data, record, StoredEntitySchema.shape);
             graph.entities.push(parsed.data);
           } else {
             unreadable.push(line);
@@ -110,14 +181,37 @@ export class KnowledgeGraphManager {
             );
           }
         } else if (record.type === "relation") {
-          const parsed = RelationSchema.safeParse(item);
+          const parsed = StoredRelationSchema.safeParse(item);
           if (parsed.success) {
-            this.keepExtraFields(parsed.data, record, RelationSchema.shape);
+            this.keepNamespaceMember(parsed.data, record);
+            this.keepExtraFields(
+              parsed.data,
+              record,
+              StoredRelationSchema.shape,
+            );
             graph.relations.push(parsed.data);
           } else {
             unreadable.push(line);
             console.error(
               "Skipping invalid relation in memory file:",
+              parsed.error.issues
+                .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+                .join(", "),
+            );
+          }
+        } else if (record.type === "namespace") {
+          const parsed = NamespaceRecordSchema.safeParse(item);
+          if (parsed.success) {
+            this.keepExtraFields(
+              parsed.data,
+              record,
+              NamespaceRecordSchema.shape,
+            );
+            graph.namespaces.push(parsed.data);
+          } else {
+            unreadable.push(line);
+            console.error(
+              "Skipping invalid namespace in memory file:",
               parsed.error.issues
                 .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
                 .join(", "),
@@ -135,9 +229,22 @@ export class KnowledgeGraphManager {
         "code" in error &&
         error.code === "ENOENT"
       ) {
-        return { graph: { entities: [], relations: [] }, unreadable: [] };
+        return {
+          graph: { namespaces: [], entities: [], relations: [] },
+          unreadable: [],
+        };
       }
       throw error;
+    }
+  }
+
+  // Note that a valid stored record had no namespace member, for namespaceMember.
+  private keepNamespaceMember(
+    parsed: object,
+    record: Record<string, unknown>,
+  ): void {
+    if (!Object.hasOwn(record, "namespace")) {
+      this.legacyRecords.add(parsed);
     }
   }
 
@@ -166,9 +273,17 @@ export class KnowledgeGraphManager {
     // record's extras (see extraFields) follow unchanged. A record created by
     // this write has none and is written exactly as before.
     const lines = [
+      ...graph.namespaces.map((n) =>
+        JSON.stringify({
+          type: "namespace",
+          name: n.name,
+          ...this.extraFields.get(n),
+        }),
+      ),
       ...graph.entities.map((e) =>
         JSON.stringify({
           type: "entity",
+          ...this.namespaceMember(e),
           name: e.name,
           entityType: e.entityType,
           observations: e.observations,
@@ -178,6 +293,7 @@ export class KnowledgeGraphManager {
       ...graph.relations.map((r) =>
         JSON.stringify({
           type: "relation",
+          ...this.namespaceMember(r),
           from: r.from,
           to: r.to,
           relationType: r.relationType,
@@ -246,49 +362,98 @@ export class KnowledgeGraphManager {
     }
   }
 
-  async createEntities(entities: Entity[]): Promise<Entity[]> {
+  // Create a namespace. It fails if the name is taken, by a created namespace
+  // or by records already stored under it, so that an existing namespace is
+  // never taken over by mistake.
+  async createNamespace(namespace: string): Promise<void> {
     return this.withLock(async () => {
       const { graph, unreadable } = await this.loadGraphWithUnreadable();
-      const newEntities = entities.filter(
-        (e, index) =>
-          !graph.entities.some(
-            (existingEntity) => existingEntity.name === e.name,
-          ) &&
-          // Also skip duplicates appearing earlier in this same batch
-          !entities.slice(0, index).some((earlier) => earlier.name === e.name),
-      );
+      if (namespaceExists(graph, namespace)) {
+        throw new Error(`Namespace ${namespace} already exists`);
+      }
+      graph.namespaces.push({ name: namespace });
+      await this.saveGraph(graph, unreadable);
+    });
+  }
+
+  // Create the entities in namespace: each item is given the namespace, so the
+  // items carry none of their own.
+  async createEntities(
+    namespace: string,
+    entities: EntityInput[],
+  ): Promise<Entity[]> {
+    return this.withLock(async () => {
+      const { graph, unreadable } = await this.loadGraphWithUnreadable();
+      requireNamespace(graph, namespace);
+      const newEntities: Entity[] = entities
+        .filter(
+          (e, index) =>
+            !graph.entities.some(
+              (existingEntity) =>
+                existingEntity.namespace === namespace &&
+                existingEntity.name === e.name,
+            ) &&
+            // Also skip duplicates appearing earlier in this same batch
+            !entities
+              .slice(0, index)
+              .some((earlier) => earlier.name === e.name),
+        )
+        .map((e) => ({
+          name: e.name,
+          entityType: e.entityType,
+          observations: e.observations,
+          namespace,
+        }));
       graph.entities.push(...newEntities);
       await this.saveGraph(graph, unreadable);
       return newEntities;
     });
   }
 
-  async createRelations(relations: Relation[]): Promise<Relation[]> {
+  async createRelations(
+    namespace: string,
+    relations: RelationInput[],
+  ): Promise<Relation[]> {
     return this.withLock(async () => {
       const { graph, unreadable } = await this.loadGraphWithUnreadable();
-      const entityNames = new Set(graph.entities.map((e) => e.name));
+      requireNamespace(graph, namespace);
+      // A relation connects entities of its own namespace only.
+      const entityNames = new Set(
+        graph.entities
+          .filter((e) => e.namespace === namespace)
+          .map((e) => e.name),
+      );
 
       relations.forEach((r) => {
         if (!entityNames.has(r.from)) {
-          throw new Error(`Entity with name ${r.from} not found`);
+          throw entityNotFound(r.from, namespace);
         }
         if (!entityNames.has(r.to)) {
-          throw new Error(`Entity with name ${r.to} not found`);
+          throw entityNotFound(r.to, namespace);
         }
       });
 
-      const isSameRelation = (a: Relation, b: Relation) =>
+      const isSameRelation = (a: RelationInput, b: RelationInput) =>
         a.from === b.from && a.to === b.to && a.relationType === b.relationType;
-      const newRelations = relations.filter(
-        (r, index) =>
-          !graph.relations.some((existingRelation) =>
-            isSameRelation(existingRelation, r),
-          ) &&
-          // Also skip duplicates appearing earlier in this same batch
-          !relations
-            .slice(0, index)
-            .some((earlier) => isSameRelation(earlier, r)),
-      );
+      const newRelations: Relation[] = relations
+        .filter(
+          (r, index) =>
+            !graph.relations.some(
+              (existingRelation) =>
+                existingRelation.namespace === namespace &&
+                isSameRelation(existingRelation, r),
+            ) &&
+            // Also skip duplicates appearing earlier in this same batch
+            !relations
+              .slice(0, index)
+              .some((earlier) => isSameRelation(earlier, r)),
+        )
+        .map((r) => ({
+          from: r.from,
+          to: r.to,
+          relationType: r.relationType,
+          namespace,
+        }));
       graph.relations.push(...newRelations);
       await this.saveGraph(graph, unreadable);
       return newRelations;
@@ -296,14 +461,18 @@ export class KnowledgeGraphManager {
   }
 
   async addObservations(
+    namespace: string,
     observations: { entityName: string; contents: string[] }[],
   ): Promise<{ entityName: string; addedObservations: string[] }[]> {
     return this.withLock(async () => {
       const { graph, unreadable } = await this.loadGraphWithUnreadable();
+      requireNamespace(graph, namespace);
       const results = observations.map((o) => {
-        const entity = graph.entities.find((e) => e.name === o.entityName);
+        const entity = graph.entities.find(
+          (e) => e.namespace === namespace && e.name === o.entityName,
+        );
         if (!entity) {
-          throw new Error(`Entity with name ${o.entityName} not found`);
+          throw entityNotFound(o.entityName, namespace);
         }
         // A Set keeps the first occurrence of each string, so a repeat within
         // one call is stored and reported once (#5201).
@@ -319,18 +488,28 @@ export class KnowledgeGraphManager {
   }
 
   async deleteEntities(
+    namespace: string,
     entityNames: string[],
   ): Promise<{ deleted: string[]; notFound: string[] }> {
     return this.withLock(async () => {
       const { graph, unreadable } = await this.loadGraphWithUnreadable();
-      const present = new Set(graph.entities.map((e) => e.name));
+      requireNamespace(graph, namespace);
+      const present = new Set(
+        graph.entities
+          .filter((e) => e.namespace === namespace)
+          .map((e) => e.name),
+      );
       const deleted = entityNames.filter((name) => present.has(name));
       const notFound = entityNames.filter((name) => !present.has(name));
+      // Only this namespace's entities, and the relations among them, go: a
+      // same-named entity elsewhere is a different entity.
       graph.entities = graph.entities.filter(
-        (e) => !entityNames.includes(e.name),
+        (e) => e.namespace !== namespace || !entityNames.includes(e.name),
       );
       graph.relations = graph.relations.filter(
-        (r) => !entityNames.includes(r.from) && !entityNames.includes(r.to),
+        (r) =>
+          r.namespace !== namespace ||
+          (!entityNames.includes(r.from) && !entityNames.includes(r.to)),
       );
       await this.saveGraph(graph, unreadable);
       return { deleted, notFound };
@@ -338,14 +517,18 @@ export class KnowledgeGraphManager {
   }
 
   async deleteObservations(
+    namespace: string,
     deletions: { entityName: string; observations: string[] }[],
   ): Promise<{ deletedCount: number; missingEntities: string[] }> {
     return this.withLock(async () => {
       const { graph, unreadable } = await this.loadGraphWithUnreadable();
+      requireNamespace(graph, namespace);
       let deletedCount = 0;
       const missingEntities: string[] = [];
       deletions.forEach((d) => {
-        const entity = graph.entities.find((e) => e.name === d.entityName);
+        const entity = graph.entities.find(
+          (e) => e.namespace === namespace && e.name === d.entityName,
+        );
         if (entity) {
           const before = entity.observations.length;
           entity.observations = entity.observations.filter(
@@ -362,13 +545,16 @@ export class KnowledgeGraphManager {
   }
 
   async deleteRelations(
-    relations: Relation[],
+    namespace: string,
+    relations: RelationInput[],
   ): Promise<{ deletedCount: number }> {
     return this.withLock(async () => {
       const { graph, unreadable } = await this.loadGraphWithUnreadable();
+      requireNamespace(graph, namespace);
       const before = graph.relations.length;
       graph.relations = graph.relations.filter(
         (r) =>
+          r.namespace !== namespace ||
           !relations.some(
             (delRelation) =>
               r.from === delRelation.from &&
@@ -381,12 +567,107 @@ export class KnowledgeGraphManager {
     });
   }
 
-  // With no options, the whole graph, as the knowledge-graph resource serves
-  // it. entityTypes keeps only entities of those types, and the relations
-  // that touch one of them; observationLimit caps each entity's observations
-  // (see limitObservations).
-  async readGraph(options: ReadGraphOptions = {}): Promise<ReadGraphResult> {
+  // Every namespace that exists, created or named by a stored record, with how
+  // many entities and relations it holds (none, for a new one), in name order.
+  async listNamespaces(): Promise<NamespaceSummary[]> {
     const graph = await this.loadGraph();
+    const summaries = new Map<string, NamespaceSummary>();
+    const summaryOf = (namespace: string): NamespaceSummary => {
+      let summary = summaries.get(namespace);
+      if (!summary) {
+        summary = { namespace, entityCount: 0, relationCount: 0 };
+        summaries.set(namespace, summary);
+      }
+      return summary;
+    };
+    graph.namespaces.forEach((n) => summaryOf(n.name));
+    graph.entities.forEach((e) => summaryOf(e.namespace).entityCount++);
+    graph.relations.forEach((r) => summaryOf(r.namespace).relationCount++);
+    return [...summaries.values()].sort((a, b) =>
+      a.namespace < b.namespace ? -1 : a.namespace > b.namespace ? 1 : 0,
+    );
+  }
+
+  // Move everything in namespace to newNamespace. It fails rather than merge
+  // into a namespace that exists, since the two could hold entities of one
+  // name. The records are changed in place, so their stored extras (see
+  // extraFields) move with them.
+  async renameNamespace(
+    namespace: string,
+    newNamespace: string,
+  ): Promise<{ entityCount: number; relationCount: number }> {
+    return this.withLock(async () => {
+      if (namespace === newNamespace) {
+        throw new Error(
+          `The new namespace ${newNamespace} is the same as the current one`,
+        );
+      }
+      const { graph, unreadable } = await this.loadGraphWithUnreadable();
+      requireNamespace(graph, namespace);
+      if (namespaceExists(graph, newNamespace)) {
+        throw new Error(
+          `Namespace ${newNamespace} already exists; namespaces are not merged, so delete it or choose another name`,
+        );
+      }
+      const entities = graph.entities.filter((e) => e.namespace === namespace);
+      const relations = graph.relations.filter(
+        (r) => r.namespace === namespace,
+      );
+      graph.namespaces
+        .filter((n) => n.name === namespace)
+        .forEach((n) => (n.name = newNamespace));
+      // The rename rewrites these records anyway, so they take the current
+      // form, with a namespace member.
+      [...entities, ...relations].forEach((record) => {
+        record.namespace = newNamespace;
+        this.legacyRecords.delete(record);
+      });
+      await this.saveGraph(graph, unreadable);
+      return {
+        entityCount: entities.length,
+        relationCount: relations.length,
+      };
+    });
+  }
+
+  // Remove a namespace with every entity and relation in it. A namespace that
+  // does not exist is not an error: the counts are 0, as for delete_entities.
+  async deleteNamespace(
+    namespace: string,
+  ): Promise<{ entityCount: number; relationCount: number }> {
+    return this.withLock(async () => {
+      const { graph, unreadable } = await this.loadGraphWithUnreadable();
+      const entityCount = graph.entities.filter(
+        (e) => e.namespace === namespace,
+      ).length;
+      const relationCount = graph.relations.filter(
+        (r) => r.namespace === namespace,
+      ).length;
+      graph.namespaces = graph.namespaces.filter((n) => n.name !== namespace);
+      graph.entities = graph.entities.filter((e) => e.namespace !== namespace);
+      graph.relations = graph.relations.filter(
+        (r) => r.namespace !== namespace,
+      );
+      await this.saveGraph(graph, unreadable);
+      return { entityCount, relationCount };
+    });
+  }
+
+  // Every entity and relation of every namespace, as the knowledge-graph
+  // resource serves it. Each record carries its namespace.
+  async readFullGraph(): Promise<ReadGraphResult> {
+    const graph = await this.loadGraph();
+    return { entities: graph.entities, relations: graph.relations };
+  }
+
+  // The graph of one namespace, which must exist. entityTypes keeps only
+  // entities of those types, and the relations that touch one of them;
+  // observationLimit caps each entity's observations (see limitObservations).
+  async readGraph(
+    namespace: string,
+    options: ReadGraphOptions = {},
+  ): Promise<ReadGraphResult> {
+    const graph = await this.loadNamespace(namespace);
     const { entityTypes, observationLimit } = options;
     if (entityTypes === undefined) {
       return {
@@ -409,10 +690,11 @@ export class KnowledgeGraphManager {
   // Very basic search function. limit keeps the first matches in stored
   // order; observationLimit caps each entity's observations.
   async searchNodes(
+    namespace: string,
     query: string,
     options: SearchNodesOptions = {},
   ): Promise<ReadGraphResult> {
-    const graph = await this.loadGraph();
+    const graph = await this.loadNamespace(namespace);
 
     // Filter entities
     const filteredEntities = graph.entities
@@ -442,10 +724,11 @@ export class KnowledgeGraphManager {
   }
 
   async openNodes(
+    namespace: string,
     names: string[],
     options: OpenNodesOptions = {},
   ): Promise<ReadGraphResult> {
-    const graph = await this.loadGraph();
+    const graph = await this.loadNamespace(namespace);
 
     // Filter entities
     const filteredEntities = graph.entities.filter((e) =>
@@ -479,11 +762,12 @@ export function registerKnowledgeGraphResource(
     RESOURCE_URI,
     {
       title: "Knowledge Graph",
-      description: "The full knowledge graph with all entities and relations",
+      description:
+        "The full knowledge graph with all entities and relations, in every namespace",
       mimeType: "application/json",
     },
     async (uri) => {
-      const graph = await manager.readGraph();
+      const graph = await manager.readFullGraph();
       return {
         contents: [
           {
@@ -559,6 +843,7 @@ export function limitObservations(
     name: e.name,
     entityType: e.entityType,
     observations: e.observations.slice(0, observationLimit),
+    namespace: e.namespace,
     observationCount: e.observations.length,
   }));
 }

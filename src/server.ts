@@ -1,4 +1,4 @@
-// Build a memory server over the graph file at memoryFilePath: the nine
+// Build a memory server over the graph file at memoryFilePath: the thirteen
 // tools, the knowledge-graph resource and its subscriptions. main() serves the
 // result on stdio; tests connect it to an in-memory transport, so each call
 // returns an independent server with its own subscriber set. `era` is the

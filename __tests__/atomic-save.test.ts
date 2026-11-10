@@ -35,7 +35,8 @@ describe("KnowledgeGraphManager persistence durability", () => {
 
   it("never truncates the live memory file in place", async () => {
     const manager = new KnowledgeGraphManager(testFilePath);
-    await manager.createEntities([
+    await manager.createNamespace("default");
+    await manager.createEntities("default", [
       {
         name: "Alice",
         entityType: "person",
@@ -48,7 +49,7 @@ describe("KnowledgeGraphManager persistence durability", () => {
     const writeFileSpy = vi.spyOn(fs, "writeFile");
     const openSpy = vi.spyOn(fs, "open");
 
-    await manager.createEntities([
+    await manager.createEntities("default", [
       {
         name: "Bob",
         entityType: "person",
@@ -66,7 +67,8 @@ describe("KnowledgeGraphManager persistence durability", () => {
 
   it("leaves the committed graph intact when the write fails midway", async () => {
     const manager = new KnowledgeGraphManager(testFilePath);
-    await manager.createEntities([
+    await manager.createNamespace("default");
+    await manager.createEntities("default", [
       {
         name: "Alice",
         entityType: "person",
@@ -83,7 +85,7 @@ describe("KnowledgeGraphManager persistence durability", () => {
     });
 
     await expect(
-      manager.createEntities([
+      manager.createEntities("default", [
         {
           name: "Bob",
           entityType: "person",
@@ -97,13 +99,16 @@ describe("KnowledgeGraphManager persistence durability", () => {
     // The previously committed graph must survive untouched.
     expect(await fs.readFile(testFilePath, "utf-8")).toBe(before);
 
-    const graph = await new KnowledgeGraphManager(testFilePath).readGraph();
+    const graph = await new KnowledgeGraphManager(testFilePath).readGraph(
+      "default",
+    );
     expect(graph.entities.map((e) => e.name)).toEqual(["Alice"]);
   });
 
   it("does not leave temporary files behind after a successful write", async () => {
     const manager = new KnowledgeGraphManager(testFilePath);
-    await manager.createEntities([
+    await manager.createNamespace("default");
+    await manager.createEntities("default", [
       {
         name: "Alice",
         entityType: "person",
@@ -116,7 +121,8 @@ describe("KnowledgeGraphManager persistence durability", () => {
 
   it("cleans up the temporary file when the write fails", async () => {
     const manager = new KnowledgeGraphManager(testFilePath);
-    await manager.createEntities([
+    await manager.createNamespace("default");
+    await manager.createEntities("default", [
       {
         name: "Alice",
         entityType: "person",
@@ -129,7 +135,7 @@ describe("KnowledgeGraphManager persistence durability", () => {
     });
 
     await expect(
-      manager.createEntities([
+      manager.createEntities("default", [
         {
           name: "Bob",
           entityType: "person",
@@ -144,7 +150,8 @@ describe("KnowledgeGraphManager persistence durability", () => {
 
   it("still persists graph contents correctly across reloads", async () => {
     const manager = new KnowledgeGraphManager(testFilePath);
-    await manager.createEntities([
+    await manager.createNamespace("default");
+    await manager.createEntities("default", [
       {
         name: "Alice",
         entityType: "person",
@@ -156,17 +163,19 @@ describe("KnowledgeGraphManager persistence durability", () => {
         observations: ["likes programming"],
       },
     ]);
-    await manager.createRelations([
+    await manager.createRelations("default", [
       { from: "Alice", to: "Bob", relationType: "knows" },
     ]);
 
-    const reloaded = await new KnowledgeGraphManager(testFilePath).readGraph();
+    const reloaded = await new KnowledgeGraphManager(testFilePath).readGraph(
+      "default",
+    );
     expect(reloaded.entities.map((e) => e.name).sort()).toEqual([
       "Alice",
       "Bob",
     ]);
     expect(reloaded.relations).toEqual([
-      { from: "Alice", to: "Bob", relationType: "knows" },
+      { from: "Alice", to: "Bob", relationType: "knows", namespace: "default" },
     ]);
   });
 });

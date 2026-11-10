@@ -8,29 +8,50 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import type { Client } from "@modelcontextprotocol/client";
 import { call, connect, makeTempGraph, textOf, Connection } from "./helpers.js";
 
+// The fixtures name the default namespace, so each is both an input (an item
+// may repeat the call's namespace) and exactly what a read tool returns.
 const alice = {
   name: "Alice",
   entityType: "person",
   observations: ["works at Acme Corp", "likes tea", "plays chess"],
+  namespace: "default",
 };
 const bob = {
   name: "Bob",
   entityType: "person",
   observations: ["likes programming"],
+  namespace: "default",
 };
 const acme = {
   name: "Acme Corp",
   entityType: "organization",
   observations: ["makes anvils", "founded in 1900"],
+  namespace: "default",
 };
-const empty = { name: "Nobody", entityType: "placeholder", observations: [] };
-const aliceKnowsBob = { from: "Alice", to: "Bob", relationType: "knows" };
+const empty = {
+  name: "Nobody",
+  entityType: "placeholder",
+  observations: [],
+  namespace: "default",
+};
+const aliceKnowsBob = {
+  from: "Alice",
+  to: "Bob",
+  relationType: "knows",
+  namespace: "default",
+};
 const aliceWorksAtAcme = {
   from: "Alice",
   to: "Acme Corp",
   relationType: "works_at",
+  namespace: "default",
 };
-const bobKnowsAlice = { from: "Bob", to: "Alice", relationType: "knows" };
+const bobKnowsAlice = {
+  from: "Bob",
+  to: "Alice",
+  relationType: "knows",
+  namespace: "default",
+};
 
 describe("read tool options (#3953)", () => {
   let conn: Connection;
@@ -42,10 +63,13 @@ describe("read tool options (#3953)", () => {
     cleanup = graph.cleanup;
     conn = await connect(graph.filePath);
     client = conn.client;
+    await call(client, "create_namespace", { namespace: "default" });
     await call(client, "create_entities", {
+      namespace: "default",
       entities: [alice, bob, acme, empty],
     });
     await call(client, "create_relations", {
+      namespace: "default",
       relations: [aliceKnowsBob, aliceWorksAtAcme, bobKnowsAlice],
     });
   });
@@ -58,7 +82,7 @@ describe("read tool options (#3953)", () => {
   // Call a tool and return its structured result, checking that the text
   // block carries the same graph.
   async function read(name: string, args: Record<string, unknown>) {
-    const result = await call(client, name, args);
+    const result = await call(client, name, { namespace: "default", ...args });
     expect(result.isError).toBeFalsy();
     expect(textOf(result)).toBe(
       JSON.stringify(result.structuredContent, null, 2),
@@ -68,7 +92,7 @@ describe("read tool options (#3953)", () => {
 
   // The text of a call that must fail input validation.
   async function rejected(name: string, args: Record<string, unknown>) {
-    const result = await call(client, name, args);
+    const result = await call(client, name, { namespace: "default", ...args });
     expect(result.isError).toBe(true);
     return textOf(result);
   }

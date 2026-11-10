@@ -1,4 +1,4 @@
-// Characterization tests for the memory server's nine tools, driven through
+// Characterization tests for the memory server's thirteen tools, driven through
 // an SDK Client over an in-memory transport (#4854). They pin what a client
 // sees today: the advertised tool list, each tool's text and
 // structured results, and the error results. A test that pins a known bug
@@ -11,6 +11,25 @@ const JSON_SCHEMA_2020_12 = "https://json-schema.org/draft/2020-12/schema";
 
 // JSON Schema fragments as the SDK emits them. Output schemas close every
 // object with additionalProperties: false; input schemas leave them open.
+// The namespace member of an entity or relation exists in results only: a call
+// names its namespace once, and the server applies it to every item.
+const outputNamespace = {
+  type: "string",
+  minLength: 1,
+  maxLength: 256,
+  description: "The namespace the entity or relation belongs to",
+};
+
+// The `namespace` input of every tool that works inside one namespace: required,
+// with no default, and the namespace must already exist.
+const namespaceInput = {
+  type: "string",
+  minLength: 1,
+  maxLength: 256,
+  description:
+    "The namespace to operate in (required). It must already exist: create it with create_namespace, and list the existing ones with list_namespaces. Namespaces are isolated from each other: the same entity name can exist in several, and a relation only connects entities in its own namespace.",
+};
+
 function entityItem(closed: boolean) {
   return {
     type: "object",
@@ -23,8 +42,11 @@ function entityItem(closed: boolean) {
         description:
           "An array of observation contents associated with the entity",
       },
+      ...(closed ? { namespace: outputNamespace } : {}),
     },
-    required: ["name", "entityType", "observations"],
+    required: closed
+      ? ["name", "entityType", "observations", "namespace"]
+      : ["name", "entityType", "observations"],
     ...(closed ? { additionalProperties: false } : {}),
   };
 }
@@ -42,8 +64,11 @@ function relationItem(closed: boolean) {
         description: "The name of the entity where the relation ends",
       },
       relationType: { type: "string", description: "The type of the relation" },
+      ...(closed ? { namespace: outputNamespace } : {}),
     },
-    required: ["from", "to", "relationType"],
+    required: closed
+      ? ["from", "to", "relationType", "namespace"]
+      : ["from", "to", "relationType"],
     ...(closed ? { additionalProperties: false } : {}),
   };
 }
@@ -100,6 +125,29 @@ const statusOutputSchema = {
   additionalProperties: false,
 };
 
+// What rename_namespace and delete_namespace return: the status, with how many
+// entities and relations they affected.
+const namespaceChangeOutputSchema = {
+  type: "object",
+  properties: {
+    success: { type: "boolean" },
+    message: { type: "string" },
+    entityCount: {
+      type: "integer",
+      minimum: 0,
+      maximum: Number.MAX_SAFE_INTEGER,
+    },
+    relationCount: {
+      type: "integer",
+      minimum: 0,
+      maximum: Number.MAX_SAFE_INTEGER,
+    },
+  },
+  required: ["success", "message", "entityCount", "relationCount"],
+  $schema: JSON_SCHEMA_2020_12,
+  additionalProperties: false,
+};
+
 // create_entities, create_relations and add_observations skip what is already
 // stored, so repeating a call with the same arguments changes nothing (#5153).
 const writeAnnotations = {
@@ -133,8 +181,11 @@ const expectedTools = [
       "Create multiple new entities in the knowledge graph. An entity whose name already exists, or repeats an earlier entity in the same call, is skipped and its observations are not added; the result lists the skipped names in `skipped`. Use add_observations to add observations to an existing entity.",
     inputSchema: {
       type: "object",
-      properties: { entities: { type: "array", items: entityItem(false) } },
-      required: ["entities"],
+      properties: {
+        namespace: namespaceInput,
+        entities: { type: "array", items: entityItem(false) },
+      },
+      required: ["namespace", "entities"],
       $schema: JSON_SCHEMA_2020_12,
     },
     outputSchema: {
@@ -157,8 +208,11 @@ const expectedTools = [
       "Create multiple new relations between entities in the knowledge graph. Relations should be in active voice",
     inputSchema: {
       type: "object",
-      properties: { relations: { type: "array", items: relationItem(false) } },
-      required: ["relations"],
+      properties: {
+        namespace: namespaceInput,
+        relations: { type: "array", items: relationItem(false) },
+      },
+      required: ["namespace", "relations"],
       $schema: JSON_SCHEMA_2020_12,
     },
     outputSchema: {
@@ -179,6 +233,7 @@ const expectedTools = [
     inputSchema: {
       type: "object",
       properties: {
+        namespace: namespaceInput,
         observations: {
           type: "array",
           items: {
@@ -199,7 +254,7 @@ const expectedTools = [
           },
         },
       },
-      required: ["observations"],
+      required: ["namespace", "observations"],
       $schema: JSON_SCHEMA_2020_12,
     },
     outputSchema: {
@@ -233,13 +288,14 @@ const expectedTools = [
     inputSchema: {
       type: "object",
       properties: {
+        namespace: namespaceInput,
         entityNames: {
           type: "array",
           items: { type: "string" },
           description: "An array of entity names to delete",
         },
       },
-      required: ["entityNames"],
+      required: ["namespace", "entityNames"],
       $schema: JSON_SCHEMA_2020_12,
     },
     outputSchema: statusOutputSchema,
@@ -254,6 +310,7 @@ const expectedTools = [
     inputSchema: {
       type: "object",
       properties: {
+        namespace: namespaceInput,
         deletions: {
           type: "array",
           items: {
@@ -274,7 +331,7 @@ const expectedTools = [
           },
         },
       },
-      required: ["deletions"],
+      required: ["namespace", "deletions"],
       $schema: JSON_SCHEMA_2020_12,
     },
     outputSchema: statusOutputSchema,
@@ -288,13 +345,14 @@ const expectedTools = [
     inputSchema: {
       type: "object",
       properties: {
+        namespace: namespaceInput,
         relations: {
           type: "array",
           items: relationItem(false),
           description: "An array of relations to delete",
         },
       },
-      required: ["relations"],
+      required: ["namespace", "relations"],
       $schema: JSON_SCHEMA_2020_12,
     },
     outputSchema: statusOutputSchema,
@@ -309,6 +367,7 @@ const expectedTools = [
     inputSchema: {
       type: "object",
       properties: {
+        namespace: namespaceInput,
         entityTypes: {
           type: "array",
           items: { type: "string" },
@@ -318,6 +377,7 @@ const expectedTools = [
         },
         observationLimit: observationLimitInput,
       },
+      required: ["namespace"],
       $schema: JSON_SCHEMA_2020_12,
     },
     outputSchema: readGraphOutputSchema,
@@ -332,6 +392,7 @@ const expectedTools = [
     inputSchema: {
       type: "object",
       properties: {
+        namespace: namespaceInput,
         query: {
           type: "string",
           maxLength: 2048,
@@ -347,7 +408,7 @@ const expectedTools = [
         },
         observationLimit: observationLimitInput,
       },
-      required: ["query"],
+      required: ["namespace", "query"],
       $schema: JSON_SCHEMA_2020_12,
     },
     outputSchema: readGraphOutputSchema,
@@ -362,6 +423,7 @@ const expectedTools = [
     inputSchema: {
       type: "object",
       properties: {
+        namespace: namespaceInput,
         names: {
           type: "array",
           items: { type: "string" },
@@ -369,36 +431,184 @@ const expectedTools = [
         },
         observationLimit: observationLimitInput,
       },
-      required: ["names"],
+      required: ["namespace", "names"],
       $schema: JSON_SCHEMA_2020_12,
     },
     outputSchema: readGraphOutputSchema,
     annotations: readAnnotations,
     execution,
   },
+  {
+    name: "create_namespace",
+    title: "Create Namespace",
+    description:
+      "Create a namespace, which is where entities and relations live: every other tool takes the namespace to work in, and it must exist. Fails if a namespace of that name already exists, so reuse the existing one (see list_namespaces) rather than creating it again. Names are case-sensitive.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        namespace: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          description: "The name of the namespace to create",
+        },
+      },
+      required: ["namespace"],
+      $schema: JSON_SCHEMA_2020_12,
+    },
+    outputSchema: statusOutputSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+    execution,
+  },
+  {
+    name: "list_namespaces",
+    title: "List Namespaces",
+    description:
+      "List the namespaces of the knowledge graph, each with its number of entities and relations (0 for a namespace nothing is in yet). Use this to find out which namespaces exist before reading from or writing to one; every other tool works inside the namespace named by its required `namespace` input, which must exist.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      $schema: JSON_SCHEMA_2020_12,
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        namespaces: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              namespace: { type: "string", description: "The namespace" },
+              entityCount: {
+                type: "integer",
+                minimum: 0,
+                maximum: Number.MAX_SAFE_INTEGER,
+                description: "How many entities the namespace holds",
+              },
+              relationCount: {
+                type: "integer",
+                minimum: 0,
+                maximum: Number.MAX_SAFE_INTEGER,
+                description: "How many relations the namespace holds",
+              },
+            },
+            required: ["namespace", "entityCount", "relationCount"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["namespaces"],
+      $schema: JSON_SCHEMA_2020_12,
+      additionalProperties: false,
+    },
+    annotations: readAnnotations,
+    execution,
+  },
+  {
+    name: "rename_namespace",
+    title: "Rename Namespace",
+    description:
+      "Rename a namespace: every entity and relation in it moves to the new name. Fails if the namespace does not exist, or if the new name already exists, since namespaces are never merged.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        namespace: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          description:
+            "The current name of the namespace to rename; it must exist",
+        },
+        newNamespace: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          description: "The new name of the namespace; it must not exist",
+        },
+      },
+      required: ["namespace", "newNamespace"],
+      $schema: JSON_SCHEMA_2020_12,
+    },
+    outputSchema: namespaceChangeOutputSchema,
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+    execution,
+  },
+  {
+    name: "delete_namespace",
+    title: "Delete Namespace",
+    description:
+      "Delete a namespace with every entity and relation in it. This cannot be undone. A namespace that does not exist is not an error; the response reports 0 deleted.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        namespace: {
+          type: "string",
+          minLength: 1,
+          maxLength: 256,
+          description: "The namespace to delete, with everything in it",
+        },
+      },
+      required: ["namespace"],
+      $schema: JSON_SCHEMA_2020_12,
+    },
+    outputSchema: namespaceChangeOutputSchema,
+    annotations: deleteAnnotations,
+    execution,
+  },
 ];
 
+// The fixtures are what a tool returns for the default namespace; the *In
+// versions are what a call sends, since the call's namespace is applied to each
+// item and an item has no namespace of its own.
+const withoutNamespace = <T extends { namespace: string }>(item: T) => {
+  const { namespace: _namespace, ...rest } = item;
+  return rest;
+};
 const alice = {
   name: "Alice",
   entityType: "person",
   observations: ["works at Acme Corp", "likes tea"],
+  namespace: "default",
 };
 const bob = {
   name: "Bob",
   entityType: "person",
   observations: ["likes programming"],
+  namespace: "default",
 };
 const acme = {
   name: "Acme Corp",
   entityType: "organization",
   observations: ["makes anvils"],
+  namespace: "default",
 };
-const aliceKnowsBob = { from: "Alice", to: "Bob", relationType: "knows" };
+const aliceKnowsBob = {
+  from: "Alice",
+  to: "Bob",
+  relationType: "knows",
+  namespace: "default",
+};
 const aliceWorksAtAcme = {
   from: "Alice",
   to: "Acme Corp",
   relationType: "works_at",
+  namespace: "default",
 };
+const aliceIn = withoutNamespace(alice);
+const bobIn = withoutNamespace(bob);
+const acmeIn = withoutNamespace(acme);
+const aliceKnowsBobIn = withoutNamespace(aliceKnowsBob);
+const aliceWorksAtAcmeIn = withoutNamespace(aliceWorksAtAcme);
 
 describe("memory tools over the protocol", () => {
   let conn: Connection;
@@ -410,6 +620,7 @@ describe("memory tools over the protocol", () => {
     cleanup = graph.cleanup;
     conn = await connect(graph.filePath);
     client = conn.client;
+    await call(client, "create_namespace", { namespace: "default" });
   });
 
   afterEach(async () => {
@@ -419,14 +630,19 @@ describe("memory tools over the protocol", () => {
 
   // Seed the graph with Alice, Bob and Acme Corp and two relations.
   async function seed() {
-    await call(client, "create_entities", { entities: [alice, bob, acme] });
+    await call(client, "create_entities", {
+      namespace: "default",
+      entities: [aliceIn, bobIn, acmeIn],
+    });
     await call(client, "create_relations", {
-      relations: [aliceKnowsBob, aliceWorksAtAcme],
+      namespace: "default",
+      relations: [aliceKnowsBobIn, aliceWorksAtAcmeIn],
     });
   }
 
   async function readGraph() {
-    return (await call(client, "read_graph")).structuredContent;
+    return (await call(client, "read_graph", { namespace: "default" }))
+      .structuredContent;
   }
 
   describe("server identity and tool list", () => {
@@ -442,7 +658,7 @@ describe("memory tools over the protocol", () => {
       expect(client.getInstructions()).toBeUndefined();
     });
 
-    it("lists the nine tools with their schemas and annotations", async () => {
+    it("lists the thirteen tools with their schemas and annotations", async () => {
       const { tools } = await client.listTools();
       expect(tools).toEqual(expectedTools);
     });
@@ -451,21 +667,26 @@ describe("memory tools over the protocol", () => {
     // call leaves the graph as the first call left it (#5153).
     it("changes nothing when a write tool is repeated with the same arguments (#5153)", async () => {
       const calls: [string, Record<string, unknown>][] = [
-        ["create_entities", { entities: [alice, bob] }],
-        ["create_relations", { relations: [aliceKnowsBob] }],
+        ["create_entities", { entities: [aliceIn, bobIn] }],
+        ["create_relations", { relations: [aliceKnowsBobIn] }],
         [
           "add_observations",
           { observations: [{ entityName: "Bob", contents: ["plays chess"] }] },
         ],
       ];
       for (const [name, args] of calls) {
-        expect((await call(client, name, args)).isError).toBeUndefined();
+        expect(
+          (await call(client, name, { namespace: "default", ...args })).isError,
+        ).toBeUndefined();
       }
       // Compare around each repeat on its own, so a later repeat cannot mask
       // a change an earlier one made.
       for (const [name, args] of calls) {
         const before = await readGraph();
-        const repeat = await call(client, name, args);
+        const repeat = await call(client, name, {
+          namespace: "default",
+          ...args,
+        });
         expect(repeat.isError).toBeUndefined();
         expect(await readGraph()).toEqual(before);
       }
@@ -490,7 +711,8 @@ describe("memory tools over the protocol", () => {
   describe("create_entities", () => {
     it("returns the created entities as text and structured content", async () => {
       const result = await call(client, "create_entities", {
-        entities: [alice, bob],
+        namespace: "default",
+        entities: [aliceIn, bobIn],
       });
       expect(result.isError).toBeUndefined();
       expect(result.structuredContent).toEqual({ entities: [alice, bob] });
@@ -502,7 +724,10 @@ describe("memory tools over the protocol", () => {
     });
 
     it("accepts an empty batch", async () => {
-      const result = await call(client, "create_entities", { entities: [] });
+      const result = await call(client, "create_entities", {
+        namespace: "default",
+        entities: [],
+      });
       expect(result.structuredContent).toEqual({ entities: [] });
       expect(textOf(result)).toBe("[]");
     });
@@ -510,7 +735,8 @@ describe("memory tools over the protocol", () => {
     it("keeps the first of two same-named entities in one batch and reports the second as skipped (#4887)", async () => {
       const second = { ...alice, entityType: "robot", observations: ["beeps"] };
       const result = await call(client, "create_entities", {
-        entities: [alice, second],
+        namespace: "default",
+        entities: [aliceIn, second],
       });
       expect(result.isError).toBeUndefined();
       expect(result.structuredContent).toEqual({
@@ -532,6 +758,7 @@ describe("memory tools over the protocol", () => {
     // knows its observations were not stored.
     it("reports an entity that already exists as skipped (#4887)", async () => {
       await call(client, "create_entities", {
+        namespace: "default",
         entities: [
           {
             name: "Alice",
@@ -542,6 +769,7 @@ describe("memory tools over the protocol", () => {
       });
 
       const result = await call(client, "create_entities", {
+        namespace: "default",
         entities: [
           {
             name: "Alice",
@@ -564,13 +792,17 @@ describe("memory tools over the protocol", () => {
           text: "Skipped 1 entity that already exists: Alice. Its observations were not added; use add_observations for existing entities.",
         },
       ]);
-      const opened = await call(client, "open_nodes", { names: ["Alice"] });
+      const opened = await call(client, "open_nodes", {
+        namespace: "default",
+        names: ["Alice"],
+      });
       expect(opened.structuredContent).toEqual({
         entities: [
           {
             name: "Alice",
             entityType: "person",
             observations: ["Works at Acme"],
+            namespace: "default",
           },
         ],
         relations: [],
@@ -578,7 +810,9 @@ describe("memory tools over the protocol", () => {
     });
 
     it("rejects a call with no entities argument", async () => {
-      const result = await call(client, "create_entities", {});
+      const result = await call(client, "create_entities", {
+        namespace: "default",
+      });
       expect(result).toEqual({
         content: [
           {
@@ -592,6 +826,7 @@ describe("memory tools over the protocol", () => {
 
     it("rejects an entity missing its observations", async () => {
       const result = await call(client, "create_entities", {
+        namespace: "default",
         entities: [{ name: "Alice", entityType: "person" }],
       });
       expect(result.isError).toBe(true);
@@ -604,6 +839,7 @@ describe("memory tools over the protocol", () => {
       await Promise.all(
         names.map((name) =>
           call(client, "create_entities", {
+            namespace: "default",
             entities: [{ name, entityType: "thing", observations: [] }],
           }),
         ),
@@ -617,12 +853,16 @@ describe("memory tools over the protocol", () => {
 
   describe("create_relations", () => {
     beforeEach(async () => {
-      await call(client, "create_entities", { entities: [alice, bob, acme] });
+      await call(client, "create_entities", {
+        namespace: "default",
+        entities: [aliceIn, bobIn, acmeIn],
+      });
     });
 
     it("returns the created relations as text and structured content", async () => {
       const result = await call(client, "create_relations", {
-        relations: [aliceKnowsBob, aliceWorksAtAcme],
+        namespace: "default",
+        relations: [aliceKnowsBobIn, aliceWorksAtAcmeIn],
       });
       expect(result.isError).toBeUndefined();
       expect(result.structuredContent).toEqual({
@@ -634,9 +874,13 @@ describe("memory tools over the protocol", () => {
     });
 
     it("skips relations that already exist or repeat within the batch", async () => {
-      await call(client, "create_relations", { relations: [aliceKnowsBob] });
+      await call(client, "create_relations", {
+        namespace: "default",
+        relations: [aliceKnowsBobIn],
+      });
       const result = await call(client, "create_relations", {
-        relations: [aliceKnowsBob, aliceWorksAtAcme, aliceWorksAtAcme],
+        namespace: "default",
+        relations: [aliceKnowsBobIn, aliceWorksAtAcmeIn, aliceWorksAtAcmeIn],
       });
       expect(result.structuredContent).toEqual({
         relations: [aliceWorksAtAcme],
@@ -649,8 +893,12 @@ describe("memory tools over the protocol", () => {
 
     it("treats a different relation type between the same pair as new", async () => {
       const aliceManagesBob = { ...aliceKnowsBob, relationType: "manages" };
-      await call(client, "create_relations", { relations: [aliceKnowsBob] });
+      await call(client, "create_relations", {
+        namespace: "default",
+        relations: [aliceKnowsBobIn],
+      });
       const result = await call(client, "create_relations", {
+        namespace: "default",
         relations: [aliceManagesBob],
       });
       expect(result.structuredContent).toEqual({
@@ -660,13 +908,19 @@ describe("memory tools over the protocol", () => {
 
     it("fails the whole batch when a source entity is missing", async () => {
       const result = await call(client, "create_relations", {
+        namespace: "default",
         relations: [
           aliceKnowsBob,
           { from: "Zed", to: "Bob", relationType: "x" },
         ],
       });
       expect(result).toEqual({
-        content: [{ type: "text", text: "Entity with name Zed not found" }],
+        content: [
+          {
+            type: "text",
+            text: "Entity with name Zed not found in namespace default",
+          },
+        ],
         isError: true,
       });
       expect(await readGraph()).toEqual({
@@ -677,10 +931,16 @@ describe("memory tools over the protocol", () => {
 
     it("fails the whole batch when a target entity is missing", async () => {
       const result = await call(client, "create_relations", {
+        namespace: "default",
         relations: [{ from: "Alice", to: "Zed", relationType: "x" }],
       });
       expect(result).toEqual({
-        content: [{ type: "text", text: "Entity with name Zed not found" }],
+        content: [
+          {
+            type: "text",
+            text: "Entity with name Zed not found in namespace default",
+          },
+        ],
         isError: true,
       });
     });
@@ -688,11 +948,15 @@ describe("memory tools over the protocol", () => {
 
   describe("add_observations", () => {
     beforeEach(async () => {
-      await call(client, "create_entities", { entities: [alice, bob] });
+      await call(client, "create_entities", {
+        namespace: "default",
+        entities: [aliceIn, bobIn],
+      });
     });
 
     it("adds only observations the entity does not already have", async () => {
       const result = await call(client, "add_observations", {
+        namespace: "default",
         observations: [
           { entityName: "Alice", contents: ["likes tea", "plays chess"] },
           { entityName: "Bob", contents: ["likes programming"] },
@@ -716,13 +980,19 @@ describe("memory tools over the protocol", () => {
 
     it("fails the whole batch, saving nothing, when an entity is missing", async () => {
       const result = await call(client, "add_observations", {
+        namespace: "default",
         observations: [
           { entityName: "Alice", contents: ["plays chess"] },
           { entityName: "Zed", contents: ["unknown"] },
         ],
       });
       expect(result).toEqual({
-        content: [{ type: "text", text: "Entity with name Zed not found" }],
+        content: [
+          {
+            type: "text",
+            text: "Entity with name Zed not found in namespace default",
+          },
+        ],
         isError: true,
       });
       expect(await readGraph()).toEqual({
@@ -733,6 +1003,7 @@ describe("memory tools over the protocol", () => {
 
     it("stores and reports an observation repeated in one call once", async () => {
       const result = await call(client, "add_observations", {
+        namespace: "default",
         observations: [
           { entityName: "Alice", contents: ["plays chess", "plays chess"] },
         ],
@@ -757,6 +1028,7 @@ describe("memory tools over the protocol", () => {
 
     it("deletes the entities and every relation that touches them", async () => {
       const result = await call(client, "delete_entities", {
+        namespace: "default",
         entityNames: ["Alice"],
       });
       const message = "Entities deleted successfully";
@@ -772,6 +1044,7 @@ describe("memory tools over the protocol", () => {
 
     it("names the entities it did not find, still reporting success", async () => {
       const result = await call(client, "delete_entities", {
+        namespace: "default",
         entityNames: ["Bob", "Zed", "Yan"],
       });
       const message = "Deleted 1 of 3 entities. Not found: Zed, Yan";
@@ -791,6 +1064,7 @@ describe("memory tools over the protocol", () => {
 
     it("reports nothing deleted and leaves the graph unchanged", async () => {
       const result = await call(client, "delete_entities", {
+        namespace: "default",
         entityNames: ["Nobody"],
       });
       const message = "Deleted 0 of 1 entities. Not found: Nobody";
@@ -810,6 +1084,7 @@ describe("memory tools over the protocol", () => {
 
     it("reports success when every requested observation was removed", async () => {
       const result = await call(client, "delete_observations", {
+        namespace: "default",
         deletions: [{ entityName: "Alice", observations: ["likes tea"] }],
       });
       const message = "Observations deleted successfully";
@@ -817,7 +1092,12 @@ describe("memory tools over the protocol", () => {
         content: [{ type: "text", text: message }],
         structuredContent: { success: true, message },
       });
-      expect(await call(client, "open_nodes", { names: ["Alice"] })).toEqual(
+      expect(
+        await call(client, "open_nodes", {
+          namespace: "default",
+          names: ["Alice"],
+        }),
+      ).toEqual(
         expect.objectContaining({
           structuredContent: {
             entities: [{ ...alice, observations: ["works at Acme Corp"] }],
@@ -829,6 +1109,7 @@ describe("memory tools over the protocol", () => {
 
     it("counts observations that were not there", async () => {
       const result = await call(client, "delete_observations", {
+        namespace: "default",
         deletions: [
           { entityName: "Alice", observations: ["likes tea", "never said"] },
         ],
@@ -842,6 +1123,7 @@ describe("memory tools over the protocol", () => {
 
     it("names entities that do not exist", async () => {
       const result = await call(client, "delete_observations", {
+        namespace: "default",
         deletions: [
           { entityName: "Bob", observations: ["likes programming"] },
           { entityName: "Zed", observations: ["a", "b"] },
@@ -860,7 +1142,8 @@ describe("memory tools over the protocol", () => {
 
     it("reports success when every requested relation was removed", async () => {
       const result = await call(client, "delete_relations", {
-        relations: [aliceKnowsBob],
+        namespace: "default",
+        relations: [aliceKnowsBobIn],
       });
       const message = "Relations deleted successfully";
       expect(result).toEqual({
@@ -875,7 +1158,8 @@ describe("memory tools over the protocol", () => {
 
     it("deletes nothing when only the relation type differs", async () => {
       const result = await call(client, "delete_relations", {
-        relations: [{ ...aliceKnowsBob, relationType: "manages" }],
+        namespace: "default",
+        relations: [{ ...aliceKnowsBobIn, relationType: "manages" }],
       });
       const message = "Deleted 0 of 1 relations. The rest matched nothing.";
       expect(result).toEqual({
@@ -890,7 +1174,11 @@ describe("memory tools over the protocol", () => {
 
     it("counts relations that matched nothing", async () => {
       const result = await call(client, "delete_relations", {
-        relations: [aliceKnowsBob, { ...aliceKnowsBob, relationType: "likes" }],
+        namespace: "default",
+        relations: [
+          aliceKnowsBobIn,
+          { ...aliceKnowsBobIn, relationType: "likes" },
+        ],
       });
       const message = "Deleted 1 of 2 relations. The rest matched nothing.";
       expect(result).toEqual({
@@ -902,7 +1190,7 @@ describe("memory tools over the protocol", () => {
 
   describe("read_graph", () => {
     it("returns an empty graph when the file does not exist yet", async () => {
-      const result = await call(client, "read_graph");
+      const result = await call(client, "read_graph", { namespace: "default" });
       const empty = { entities: [], relations: [] };
       expect(result).toEqual({
         content: [{ type: "text", text: JSON.stringify(empty, null, 2) }],
@@ -912,7 +1200,7 @@ describe("memory tools over the protocol", () => {
 
     it("returns every entity and relation", async () => {
       await seed();
-      const result = await call(client, "read_graph");
+      const result = await call(client, "read_graph", { namespace: "default" });
       const graph = {
         entities: [alice, bob, acme],
         relations: [aliceKnowsBob, aliceWorksAtAcme],
@@ -926,11 +1214,16 @@ describe("memory tools over the protocol", () => {
     beforeEach(seed);
 
     async function search(query: string) {
-      return (await call(client, "search_nodes", { query })).structuredContent;
+      return (
+        await call(client, "search_nodes", { namespace: "default", query })
+      ).structuredContent;
     }
 
     it("matches entity names, and returns relations touching any match", async () => {
-      const result = await call(client, "search_nodes", { query: "bob" });
+      const result = await call(client, "search_nodes", {
+        namespace: "default",
+        query: "bob",
+      });
       const graph = { entities: [bob], relations: [aliceKnowsBob] };
       expect(result).toEqual({
         content: [{ type: "text", text: JSON.stringify(graph, null, 2) }],
@@ -965,6 +1258,7 @@ describe("memory tools over the protocol", () => {
 
     it("accepts a query of exactly 2048 characters", async () => {
       const result = await call(client, "search_nodes", {
+        namespace: "default",
         query: "a".repeat(2048),
       });
       expect(result.isError).toBeUndefined();
@@ -972,7 +1266,10 @@ describe("memory tools over the protocol", () => {
     });
 
     it("rejects a query that is not a string", async () => {
-      const result = await call(client, "search_nodes", { query: 42 });
+      const result = await call(client, "search_nodes", {
+        namespace: "default",
+        query: 42,
+      });
       expect(result).toEqual({
         content: [
           {
@@ -986,6 +1283,7 @@ describe("memory tools over the protocol", () => {
 
     it("rejects a query longer than 2048 characters", async () => {
       const result = await call(client, "search_nodes", {
+        namespace: "default",
         query: "a".repeat(2049),
       });
       expect(result).toEqual({
@@ -1004,7 +1302,10 @@ describe("memory tools over the protocol", () => {
     beforeEach(seed);
 
     it("returns the named entities and every relation touching them", async () => {
-      const result = await call(client, "open_nodes", { names: ["Bob"] });
+      const result = await call(client, "open_nodes", {
+        namespace: "default",
+        names: ["Bob"],
+      });
       const graph = { entities: [bob], relations: [aliceKnowsBob] };
       expect(result).toEqual({
         content: [{ type: "text", text: JSON.stringify(graph, null, 2) }],
@@ -1014,6 +1315,7 @@ describe("memory tools over the protocol", () => {
 
     it("matches names exactly and ignores names that do not exist", async () => {
       const result = await call(client, "open_nodes", {
+        namespace: "default",
         names: ["alice", "Acme Corp", "Zed"],
       });
       expect(result.structuredContent).toEqual({
@@ -1023,7 +1325,10 @@ describe("memory tools over the protocol", () => {
     });
 
     it("returns an empty graph for an empty list", async () => {
-      const result = await call(client, "open_nodes", { names: [] });
+      const result = await call(client, "open_nodes", {
+        namespace: "default",
+        names: [],
+      });
       expect(result.structuredContent).toEqual({ entities: [], relations: [] });
     });
   });

@@ -44,13 +44,28 @@ describe("stdio smoke test of dist/index.js", () => {
       await client.connect(transport);
       expect(client.getServerVersion()?.name).toBe("memory-server");
       const { tools } = await client.listTools();
-      expect(tools).toHaveLength(9);
+      expect(tools).toHaveLength(13);
+      // A namespace must exist before anything is written to it.
+      const refused = await call(client, "create_entities", {
+        namespace: "story",
+        entities: [{ name: "Alice", entityType: "person", observations: [] }],
+      });
+      expect(refused.isError).toBe(true);
+      const created = await call(client, "create_namespace", {
+        namespace: "story",
+      });
+      expect(created.isError).toBeUndefined();
       const result = await call(client, "create_entities", {
+        namespace: "story",
         entities: [{ name: "Alice", entityType: "person", observations: [] }],
       });
       expect(result.isError).toBeUndefined();
+      const { namespaces } = (await call(client, "list_namespaces"))
+        .structuredContent as { namespaces: { namespace: string }[] };
+      expect(namespaces.map((n) => n.namespace)).toEqual(["story"]);
       expect(await readFileText(filePath)).toBe(
-        '{"type":"entity","name":"Alice","entityType":"person","observations":[]}\n',
+        '{"type":"namespace","name":"story"}\n' +
+          '{"type":"entity","namespace":"story","name":"Alice","entityType":"person","observations":[]}\n',
       );
     } finally {
       await client.close();

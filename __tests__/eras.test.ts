@@ -80,7 +80,7 @@ describe("both protocol eras", () => {
     });
     expect(subscription.honoredFilter.resourceSubscriptions).toEqual([URI]);
     const updated = nextUpdate(client);
-    await call(client, "create_entities", { entities: [alice] });
+    await call(client, "create_namespace", { namespace: "story" });
     expect(await updated).toBe(URI);
     await subscription.close();
   });
@@ -95,7 +95,7 @@ describe("both protocol eras", () => {
       },
     );
     const subscription = await client.listen({ toolsListChanged: true });
-    await call(client, "create_entities", { entities: [alice] });
+    await call(client, "create_namespace", { namespace: "story" });
     // A read after the write: any notification it sent is delivered first.
     await client.readResource({ uri: URI });
     expect(updates).toEqual([]);
@@ -107,7 +107,7 @@ describe("both protocol eras", () => {
     expect(client.getProtocolEra()).toBe("legacy");
     await client.subscribeResource({ uri: URI });
     const updated = nextUpdate(client);
-    await call(client, "create_entities", { entities: [alice] });
+    await call(client, "create_namespace", { namespace: "story" });
     expect(await updated).toBe(URI);
   });
 
@@ -115,7 +115,11 @@ describe("both protocol eras", () => {
     "reads the graph back to a %s client",
     async (mode) => {
       const client = await connect(mode);
-      await call(client, "create_entities", { entities: [alice] });
+      await call(client, "create_namespace", { namespace: "story" });
+      await call(client, "create_entities", {
+        namespace: "story",
+        entities: [alice],
+      });
       const { contents } = await client.readResource({ uri: URI });
       expect(JSON.parse((contents[0] as { text: string }).text)).toMatchObject({
         entities: [{ name: "Alice" }],

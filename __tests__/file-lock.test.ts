@@ -341,17 +341,18 @@ describe("withFileLock", () => {
       new KnowledgeGraphManager(filePath, { retryMs: 1 }),
       new KnowledgeGraphManager(filePath, { retryMs: 1 }),
     ];
+    await managers[0].createNamespace("default");
     const names = Array.from({ length: 20 }, (_, i) => `entity-${i}`);
 
     await Promise.all(
       names.map((name, i) =>
-        managers[i % 2].createEntities([
+        managers[i % 2].createEntities("default", [
           { name, entityType: "thing", observations: [] },
         ]),
       ),
     );
 
-    const graph = await managers[0].readGraph();
+    const graph = await managers[0].readGraph("default");
     expect(graph.entities.map((e) => e.name).sort()).toEqual([...names].sort());
     expect(await fs.readdir(dir)).toEqual(["memory.jsonl"]);
   });

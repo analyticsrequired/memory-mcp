@@ -44,11 +44,14 @@ describe("main", () => {
     await client.connect(clientTransport);
     try {
       expect(client.getServerVersion()?.name).toBe("memory-server");
+      await call(client, "create_namespace", { namespace: "story" });
       await call(client, "create_entities", {
+        namespace: "story",
         entities: [{ name: "Alice", entityType: "person", observations: [] }],
       });
       expect(await readFileText(graphPath)).toBe(
-        '{"type":"entity","name":"Alice","entityType":"person","observations":[]}\n',
+        '{"type":"namespace","name":"story"}\n' +
+          '{"type":"entity","namespace":"story","name":"Alice","entityType":"person","observations":[]}\n',
       );
       expect(errorSpy).toHaveBeenCalledWith(
         "Knowledge Graph MCP Server running on stdio",

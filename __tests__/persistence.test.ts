@@ -15,18 +15,34 @@ import {
   Connection,
 } from "./helpers.js";
 
+// The fixtures name the default namespace, so each is both an input (an item
+// may repeat the call's namespace) and exactly what a tool returns. The graph
+// file never carries it: a record in the default namespace is stored without
+// one, which the file-format assertions below pin.
 const alice = {
   name: "Alice",
   entityType: "person",
   observations: ["Works at Acme", "Prefers email"],
+  namespace: "default",
 };
-const bob = { name: "Bob", entityType: "person", observations: [] };
+const bob = {
+  name: "Bob",
+  entityType: "person",
+  observations: [],
+  namespace: "default",
+};
 const carol = {
   name: "Carol",
   entityType: "person",
   observations: ["New hire"],
+  namespace: "default",
 };
-const aliceManagesBob = { from: "Alice", to: "Bob", relationType: "manages" };
+const aliceManagesBob = {
+  from: "Alice",
+  to: "Bob",
+  relationType: "manages",
+  namespace: "default",
+};
 
 describe("memory persistence over the protocol", () => {
   let dir: string;
@@ -50,17 +66,32 @@ describe("memory persistence over the protocol", () => {
     return conn;
   }
 
+  // For a test that starts from an empty file: namespaces are created
+  // explicitly, so the default one has to exist before anything is written.
+  async function openWithNamespace(): Promise<Connection> {
+    const opened = await open();
+    await call(opened.client, "create_namespace", { namespace: "default" });
+    return opened;
+  }
+
   describe("file format", () => {
-    it("writes one JSON object per line, entities first, with a trailing newline", async () => {
-      const { client } = await open();
-      await call(client, "create_entities", { entities: [alice, bob] });
-      await call(client, "create_relations", { relations: [aliceManagesBob] });
+    it("writes one JSON object per line, namespaces then entities then relations, with a trailing newline", async () => {
+      const { client } = await openWithNamespace();
+      await call(client, "create_entities", {
+        namespace: "default",
+        entities: [alice, bob],
+      });
+      await call(client, "create_relations", {
+        namespace: "default",
+        relations: [aliceManagesBob],
+      });
 
       expect(await readFileText(filePath)).toBe(
         [
-          '{"type":"entity","name":"Alice","entityType":"person","observations":["Works at Acme","Prefers email"]}',
-          '{"type":"entity","name":"Bob","entityType":"person","observations":[]}',
-          '{"type":"relation","from":"Alice","to":"Bob","relationType":"manages"}',
+          '{"type":"namespace","name":"default"}',
+          '{"type":"entity","namespace":"default","name":"Alice","entityType":"person","observations":["Works at Acme","Prefers email"]}',
+          '{"type":"entity","namespace":"default","name":"Bob","entityType":"person","observations":[]}',
+          '{"type":"relation","namespace":"default","from":"Alice","to":"Bob","relationType":"manages"}',
           "",
         ].join("\n"),
       );
@@ -68,24 +99,32 @@ describe("memory persistence over the protocol", () => {
 
     it("does not create the file until the first write", async () => {
       const { client } = await open();
-      await call(client, "read_graph");
-      await call(client, "search_nodes", { query: "x" });
+      await call(client, "read_graph", { namespace: "default" });
+      await call(client, "search_nodes", { namespace: "default", query: "x" });
       expect(await fs.readdir(dir)).toEqual([]);
     });
 
     it("leaves only the graph file behind after a write", async () => {
-      const { client } = await open();
-      await call(client, "create_entities", { entities: [alice] });
+      const { client } = await openWithNamespace();
+      await call(client, "create_entities", {
+        namespace: "default",
+        entities: [alice],
+      });
       expect(await fs.readdir(dir)).toEqual(["memory.jsonl"]);
     });
 
     it("serves a graph another server wrote to the same file", async () => {
       const writer = await connect(filePath);
       try {
+        await call(writer.client, "create_namespace", {
+          namespace: "default",
+        });
         await call(writer.client, "create_entities", {
+          namespace: "default",
           entities: [alice, bob],
         });
         await call(writer.client, "create_relations", {
+          namespace: "default",
           relations: [aliceManagesBob],
         });
       } finally {
@@ -93,7 +132,10 @@ describe("memory persistence over the protocol", () => {
       }
 
       const { client } = await open();
-      expect((await call(client, "read_graph")).structuredContent).toEqual({
+      expect(
+        (await call(client, "read_graph", { namespace: "default" }))
+          .structuredContent,
+      ).toEqual({
         entities: [alice, bob],
         relations: [aliceManagesBob],
       });
@@ -106,9 +148,26 @@ describe("memory persistence over the protocol", () => {
           '{"type":"relation","from":"Alice","to":"Alice","relationType":"is","weight":2}\n',
       );
       const { client } = await open();
-      expect((await call(client, "read_graph")).structuredContent).toEqual({
-        entities: [{ name: "Alice", entityType: "person", observations: [] }],
-        relations: [{ from: "Alice", to: "Alice", relationType: "is" }],
+      expect(
+        (await call(client, "read_graph", { namespace: "default" }))
+          .structuredContent,
+      ).toEqual({
+        entities: [
+          {
+            name: "Alice",
+            entityType: "person",
+            observations: [],
+            namespace: "default",
+          },
+        ],
+        relations: [
+          {
+            from: "Alice",
+            to: "Alice",
+            relationType: "is",
+            namespace: "default",
+          },
+        ],
       });
     });
   });
@@ -139,7 +198,7 @@ describe("memory persistence over the protocol", () => {
       const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       const { client } = await open();
 
-      const result = await call(client, "read_graph");
+      const result = await call(client, "read_graph", { namespace: "default" });
 
       expect(result.isError).toBeUndefined();
       expect(result.structuredContent).toEqual({
@@ -176,6 +235,7 @@ describe("memory persistence over the protocol", () => {
       const { client } = await open();
 
       const result = await call(client, "create_entities", {
+        namespace: "default",
         entities: [carol],
       });
 
@@ -184,7 +244,7 @@ describe("memory persistence over the protocol", () => {
       expect(await readFileText(filePath)).toBe(
         [
           '{"type":"entity","name":"Alice","entityType":"person","observations":["Works at Acme","Prefers email"]}',
-          '{"type":"entity","name":"Carol","entityType":"person","observations":["New hire"]}',
+          '{"type":"entity","namespace":"default","name":"Carol","entityType":"person","observations":["New hire"]}',
           '{"type":"relation","from":"Alice","to":"Bob","relationType":"manages"}',
           '{"type":"entity","name":"Bob","entityType":"person","observations":["Allergic to penicillin","Lives in Haifa",null]}',
           '{"type":"entity","name":"Project X","observations":["Deadline 2026-10-01","Budget 40k"]}',
@@ -198,7 +258,10 @@ describe("memory persistence over the protocol", () => {
         ].join("\n"),
       );
       // The kept lines stay out of the graph.
-      expect((await call(client, "read_graph")).structuredContent).toEqual({
+      expect(
+        (await call(client, "read_graph", { namespace: "default" }))
+          .structuredContent,
+      ).toEqual({
         entities: [alice, carol],
         relations: [aliceManagesBob],
       });
@@ -224,7 +287,10 @@ describe("memory persistence over the protocol", () => {
         ["open_nodes", { names: ["a"] }],
         ["create_entities", { entities: [alice] }],
       ] as const) {
-        const result = await call(client, name, args);
+        const result = await call(client, name, {
+          namespace: "default",
+          ...args,
+        });
         expect(result.isError).toBe(true);
         expect(expected).toContain(textOf(result));
       }
@@ -234,14 +300,18 @@ describe("memory persistence over the protocol", () => {
     });
 
     it("reports a failed save as a tool error and keeps the committed file", async () => {
-      const { client } = await open();
-      await call(client, "create_entities", { entities: [alice] });
+      const { client } = await openWithNamespace();
+      await call(client, "create_entities", {
+        namespace: "default",
+        entities: [alice],
+      });
       const before = await readFileText(filePath);
 
       vi.spyOn(fs, "rename").mockRejectedValueOnce(
         new Error("EXDEV: simulated rename failure"),
       );
       const result = await call(client, "create_entities", {
+        namespace: "default",
         entities: [bob],
       });
 
@@ -254,16 +324,18 @@ describe("memory persistence over the protocol", () => {
     });
 
     it("keeps serving after a failed save", async () => {
-      const { client } = await open();
+      const { client } = await openWithNamespace();
       vi.spyOn(fs, "writeFile").mockRejectedValueOnce(
         new Error("ENOSPC: simulated full disk"),
       );
       const failed = await call(client, "create_entities", {
+        namespace: "default",
         entities: [alice],
       });
       expect(failed.isError).toBe(true);
 
       const retried = await call(client, "create_entities", {
+        namespace: "default",
         entities: [alice],
       });
       expect(retried.structuredContent).toEqual({ entities: [alice] });
@@ -290,15 +362,21 @@ describe("memory persistence over the protocol", () => {
     }
 
     it("keeps a hardened graph file's mode across a save", async () => {
-      const { client } = await open();
-      await call(client, "create_entities", { entities: [alice] });
+      const { client } = await openWithNamespace();
+      await call(client, "create_entities", {
+        namespace: "default",
+        entities: [alice],
+      });
       // 0600 as in the issue, unless the umask already makes new files 0600;
       // the original mode must differ from a new file's for a loss to show.
       const original = (await newFileMode()) === 0o600 ? 0o640 : 0o600;
       await fs.chmod(filePath, original);
       const writeFile = vi.spyOn(fs, "writeFile");
 
-      await call(client, "create_entities", { entities: [bob] });
+      await call(client, "create_entities", {
+        namespace: "default",
+        entities: [bob],
+      });
 
       // The temp file is created with that mode, never a wider one first.
       expect(writeFile).toHaveBeenCalledWith(
@@ -307,7 +385,10 @@ describe("memory persistence over the protocol", () => {
         { mode: original },
       );
       expect(await modeOf(filePath)).toBe(original);
-      expect((await call(client, "read_graph")).structuredContent).toEqual({
+      expect(
+        (await call(client, "read_graph", { namespace: "default" }))
+          .structuredContent,
+      ).toEqual({
         entities: [alice, bob],
         relations: [],
       });
@@ -317,12 +398,16 @@ describe("memory persistence over the protocol", () => {
     it.skipIf(process.getuid?.() === 0)(
       "refuses to overwrite a read-only graph file",
       async () => {
-        const { client } = await open();
-        await call(client, "create_entities", { entities: [alice] });
+        const { client } = await openWithNamespace();
+        await call(client, "create_entities", {
+          namespace: "default",
+          entities: [alice],
+        });
         await fs.chmod(filePath, 0o444);
         const before = await readFileText(filePath);
 
         const result = await call(client, "create_entities", {
+          namespace: "default",
           entities: [bob],
         });
 
@@ -362,18 +447,35 @@ describe("memory persistence over the protocol", () => {
         return data;
       }) as typeof fs.readFile);
 
-      const a = { name: "From A", entityType: "thing", observations: [] };
-      const b = { name: "From B", entityType: "thing", observations: [] };
+      const a = {
+        name: "From A",
+        entityType: "thing",
+        observations: [],
+        namespace: "default",
+      };
+      const b = {
+        name: "From B",
+        entityType: "thing",
+        observations: [],
+        namespace: "default",
+      };
       const [resultA, resultB] = await Promise.all([
-        call(first.client, "create_entities", { entities: [a] }),
-        call(second.client, "create_entities", { entities: [b] }),
+        call(first.client, "create_entities", {
+          namespace: "default",
+          entities: [a],
+        }),
+        call(second.client, "create_entities", {
+          namespace: "default",
+          entities: [b],
+        }),
       ]);
       vi.restoreAllMocks();
 
       expect(resultA.structuredContent).toEqual({ entities: [a] });
       expect(resultB.structuredContent).toEqual({ entities: [b] });
-      const graph = (await call(first.client, "read_graph"))
-        .structuredContent as { entities: { name: string }[] };
+      const graph = (
+        await call(first.client, "read_graph", { namespace: "default" })
+      ).structuredContent as { entities: { name: string }[] };
       const names = graph.entities.map((e) => e.name);
       expect(names[0]).toBe("Seed");
       expect(names.slice(1).sort()).toEqual(["From A", "From B"]);

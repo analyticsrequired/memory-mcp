@@ -8,7 +8,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { KnowledgeGraphManager } from "@/graph.js";
-import { Entity } from "@/schemas.js";
+import { EntityInput } from "@/schemas.js";
 import { skippedEntitiesNotice, skippedEntityNames } from "@/tools.js";
 
 describe("create reporting", () => {
@@ -21,7 +21,8 @@ describe("create reporting", () => {
       `test-create-reporting-${Date.now()}-${Math.random().toString(16).slice(2)}.jsonl`,
     );
     manager = new KnowledgeGraphManager(testFilePath);
-    await manager.createEntities([
+    await manager.createNamespace("default");
+    await manager.createEntities("default", [
       {
         name: "Alice",
         entityType: "person",
@@ -39,7 +40,7 @@ describe("create reporting", () => {
   });
 
   it("names an entity skipped because it already exists", async () => {
-    const requested: Entity[] = [
+    const requested: EntityInput[] = [
       {
         name: "Alice",
         entityType: "person",
@@ -47,25 +48,25 @@ describe("create reporting", () => {
       },
       { name: "Bob", entityType: "person", observations: [] },
     ];
-    const created = await manager.createEntities(requested);
+    const created = await manager.createEntities("default", requested);
     expect(created.map((e) => e.name)).toEqual(["Bob"]);
     expect(skippedEntityNames(requested, created)).toEqual(["Alice"]);
   });
 
   it("names a repeat within the same batch", async () => {
-    const requested: Entity[] = [
+    const requested: EntityInput[] = [
       { name: "Carol", entityType: "person", observations: ["first"] },
       { name: "Carol", entityType: "person", observations: ["second"] },
     ];
-    const created = await manager.createEntities(requested);
+    const created = await manager.createEntities("default", requested);
     expect(skippedEntityNames(requested, created)).toEqual(["Carol"]);
   });
 
   it("reports nothing skipped when every entity is new", async () => {
-    const requested: Entity[] = [
+    const requested: EntityInput[] = [
       { name: "Dan", entityType: "person", observations: [] },
     ];
-    const created = await manager.createEntities(requested);
+    const created = await manager.createEntities("default", requested);
     expect(skippedEntityNames(requested, created)).toEqual([]);
   });
 

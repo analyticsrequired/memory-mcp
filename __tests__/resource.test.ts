@@ -9,9 +9,26 @@ import { call, connect, makeTempGraph, Connection } from "./helpers.js";
 
 const URI = "memory://knowledge-graph";
 
-const alice = { name: "Alice", entityType: "person", observations: ["a"] };
-const bob = { name: "Bob", entityType: "person", observations: ["b"] };
-const aliceKnowsBob = { from: "Alice", to: "Bob", relationType: "knows" };
+// The fixtures name the default namespace, so each is both an input (an item
+// may repeat the call's namespace) and exactly what the graph holds for it.
+const alice = {
+  name: "Alice",
+  entityType: "person",
+  observations: ["a"],
+  namespace: "default",
+};
+const bob = {
+  name: "Bob",
+  entityType: "person",
+  observations: ["b"],
+  namespace: "default",
+};
+const aliceKnowsBob = {
+  from: "Alice",
+  to: "Bob",
+  relationType: "knows",
+  namespace: "default",
+};
 
 describe("knowledge-graph resource over the protocol", () => {
   let conn: Connection;
@@ -26,6 +43,7 @@ describe("knowledge-graph resource over the protocol", () => {
     cleanup = graph.cleanup;
     conn = await connect(filePath);
     client = conn.client;
+    await call(client, "create_namespace", { namespace: "default" });
     updates = [];
     client.setNotificationHandler(
       "notifications/resources/updated",
@@ -56,7 +74,7 @@ describe("knowledge-graph resource over the protocol", () => {
             title: "Knowledge Graph",
             uri: URI,
             description:
-              "The full knowledge graph with all entities and relations",
+              "The full knowledge graph with all entities and relations, in every namespace",
             mimeType: "application/json",
           },
         ],
@@ -79,8 +97,14 @@ describe("knowledge-graph resource over the protocol", () => {
     });
 
     it("reads the current graph as pretty-printed JSON", async () => {
-      await call(client, "create_entities", { entities: [alice, bob] });
-      await call(client, "create_relations", { relations: [aliceKnowsBob] });
+      await call(client, "create_entities", {
+        namespace: "default",
+        entities: [alice, bob],
+      });
+      await call(client, "create_relations", {
+        namespace: "default",
+        relations: [aliceKnowsBob],
+      });
 
       const { contents } = await client.readResource({ uri: URI });
       expect(contents).toEqual([
@@ -110,7 +134,10 @@ describe("knowledge-graph resource over the protocol", () => {
     });
 
     it("sends no update to a client that has not subscribed", async () => {
-      await call(client, "create_entities", { entities: [alice] });
+      await call(client, "create_entities", {
+        namespace: "default",
+        entities: [alice],
+      });
       await settle();
       expect(updates).toEqual([]);
     });
@@ -118,57 +145,104 @@ describe("knowledge-graph resource over the protocol", () => {
     it("sends one update per successful mutation tool call", async () => {
       await client.subscribeResource({ uri: URI });
 
-      await call(client, "create_entities", { entities: [alice, bob] });
-      await call(client, "create_relations", { relations: [aliceKnowsBob] });
+      await call(client, "create_entities", {
+        namespace: "default",
+        entities: [alice, bob],
+      });
+      await call(client, "create_relations", {
+        namespace: "default",
+        relations: [aliceKnowsBob],
+      });
       await call(client, "add_observations", {
+        namespace: "default",
         observations: [{ entityName: "Alice", contents: ["c"] }],
       });
       await call(client, "delete_observations", {
+        namespace: "default",
         deletions: [{ entityName: "Alice", observations: ["c"] }],
       });
-      await call(client, "delete_relations", { relations: [aliceKnowsBob] });
-      await call(client, "delete_entities", { entityNames: ["Bob"] });
+      await call(client, "delete_relations", {
+        namespace: "default",
+        relations: [aliceKnowsBob],
+      });
+      await call(client, "delete_entities", {
+        namespace: "default",
+        entityNames: ["Bob"],
+      });
+      await call(client, "rename_namespace", {
+        namespace: "default",
+        newNamespace: "renamed",
+      });
+      await call(client, "delete_namespace", { namespace: "renamed" });
       await settle();
 
-      expect(updates).toEqual(Array.from({ length: 6 }, () => ({ uri: URI })));
+      expect(updates).toEqual(Array.from({ length: 8 }, () => ({ uri: URI })));
     });
 
     it("notifies even when a mutation changed nothing", async () => {
       await client.subscribeResource({ uri: URI });
-      await call(client, "delete_entities", { entityNames: ["Nobody"] });
+      await call(client, "delete_entities", {
+        namespace: "default",
+        entityNames: ["Nobody"],
+      });
       await settle();
       expect(updates).toEqual([{ uri: URI }]);
     });
 
     it("does not notify for read-only tools or a failed mutation", async () => {
-      await call(client, "create_entities", { entities: [alice] });
+      await call(client, "create_entities", {
+        namespace: "default",
+        entities: [alice],
+      });
       await client.subscribeResource({ uri: URI });
 
-      await call(client, "read_graph");
-      await call(client, "search_nodes", { query: "Alice" });
-      await call(client, "open_nodes", { names: ["Alice"] });
+      await call(client, "read_graph", { namespace: "default" });
+      await call(client, "search_nodes", {
+        namespace: "default",
+        query: "Alice",
+      });
+      await call(client, "open_nodes", {
+        namespace: "default",
+        names: ["Alice"],
+      });
+      await call(client, "list_namespaces");
       await client.readResource({ uri: URI });
       const failed = await call(client, "create_relations", {
+        namespace: "default",
         relations: [{ from: "Alice", to: "Zed", relationType: "x" }],
+      });
+      const failedRename = await call(client, "rename_namespace", {
+        namespace: "nope",
+        newNamespace: "other",
       });
       await settle();
 
       expect(failed.isError).toBe(true);
+      expect(failedRename.isError).toBe(true);
       expect(updates).toEqual([]);
     });
 
     it("does not notify a client subscribed only to another URI", async () => {
       await client.subscribeResource({ uri: "memory://something-else" });
-      await call(client, "create_entities", { entities: [alice] });
+      await call(client, "create_entities", {
+        namespace: "default",
+        entities: [alice],
+      });
       await settle();
       expect(updates).toEqual([]);
     });
 
     it("stops notifying after unsubscribe", async () => {
       await client.subscribeResource({ uri: URI });
-      await call(client, "create_entities", { entities: [alice] });
+      await call(client, "create_entities", {
+        namespace: "default",
+        entities: [alice],
+      });
       await client.unsubscribeResource({ uri: URI });
-      await call(client, "create_entities", { entities: [bob] });
+      await call(client, "create_entities", {
+        namespace: "default",
+        entities: [bob],
+      });
       await settle();
       expect(updates).toEqual([{ uri: URI }]);
     });
@@ -177,7 +251,10 @@ describe("knowledge-graph resource over the protocol", () => {
       const other = await connect(filePath);
       try {
         await other.client.subscribeResource({ uri: URI });
-        await call(client, "create_entities", { entities: [alice] });
+        await call(client, "create_entities", {
+          namespace: "default",
+          entities: [alice],
+        });
         await settle();
         expect(updates).toEqual([]);
       } finally {
@@ -201,6 +278,7 @@ describe("knowledge-graph resource over the protocol", () => {
       await client.subscribeResource({ uri: URI });
 
       const result = await call(client, "create_entities", {
+        namespace: "default",
         entities: [alice],
       });
       await settle();
